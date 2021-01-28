@@ -9,11 +9,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import Flowable
 
-# from helpers.collections import Collections
-# from helpers.findings import Findings
-# from helpers.api import VeracodeAPI as vapi
-# from helpers.identity import Users
-from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
+from helpers.collections import Collections
+from helpers.findings import Findings
+from helpers.api import VeracodeAPI as vapi
+from helpers.identity import Users
+# from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
 
 log = logging.getLogger(__name__)
 
@@ -212,25 +212,25 @@ def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], s
             status_scan = asset['attributes'].get('policy_passed_scan_requirements')
             status_grace = asset['attributes'].get('policy_in_grace_period')
             if status_rules:
-                rules_icon = os.path.join('resources','check.png')
+                rules_icon = os.path.join('resources', 'small','pass.png')
                 rules_text = 'Passed'
             elif status_grace:
-                rules_icon = os.path.join('resources','conditional-small.png')
+                rules_icon = os.path.join('resources','small', 'conditional.png')
                 rules_text = 'Within Grace Period'
             else:
-                rules_icon = os.path.join('resources','redx.png')
+                rules_icon = os.path.join('resources','small','fail.png')
                 rules_text = 'Did Not Pass'
 
             if status_scan:
-                scan_icon = os.path.join('resources','check.png')
+                scan_icon = os.path.join('resources','small','pass.png')
                 scan_text = 'Passed'
             else:
-                scan_icon = os.path.join('resources','redx.png')
+                scan_icon = os.path.join('resources','small','fail.png')
                 scan_text = 'Did Not Pass'
             pdf.drawString(leftmargin, section_start - (lines + 3 +index) * lineheight * normalsize, asset['name'])
-            pdf.drawImage(rules_icon, secondcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 10, 10)
+            pdf.drawImage(rules_icon, secondcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 8, 8)
             pdf.drawString(secondcolumn + iconspace, section_start - (lines + 3 +index) * lineheight * normalsize, rules_text)
-            pdf.drawImage(scan_icon, thirdcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 10, 10)
+            pdf.drawImage(scan_icon, thirdcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 8, 8)
             pdf.drawString(thirdcolumn + iconspace, section_start - (lines + 3 +index) * lineheight * normalsize, scan_text)
 
             index += 1
