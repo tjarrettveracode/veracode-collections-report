@@ -9,11 +9,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import Flowable
 
-from helpers.collections import Collections
-from helpers.findings import Findings
-from helpers.api import VeracodeAPI as vapi
-from helpers.identity import Users
-# from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
+from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
 
 log = logging.getLogger(__name__)
 
@@ -116,7 +112,7 @@ def write_cover_page(pdf, collection_name, user_name, report_time):
     pdf.setFont(fontbold, normalsize)
     pdf.drawString(leftmargin, height - (144+(8 * lineheight * normalsize)), 'Sections')
     pdf.drawString(leftmargin + 300, height - (144+(8 * lineheight * normalsize)), 'Page')
-    # TODO draw line
+
     pdf.setFont(fontfamily, normalsize)
     pdf.drawString(leftmargin, height - (144+(10 * lineheight * normalsize)), 'Executive Summary')
     pdf.drawString(leftmargin + 300, height - (144+(10 * lineheight * normalsize)), '1')
@@ -189,13 +185,9 @@ def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], s
     iconspace = 15
     section_header = Collections().compliance_titles[compliance_type.upper()]
 
-    print('section: {}, start: {}'.format(compliance_type, section_start))
-
     pdf.drawImage(icon,leftmargin, section_start - 2, 13, 16) #drop the icon a little below the text line
     pdf.setFont(fontfamily,h2size)
     pdf.drawString(leftmargin + 20, section_start, section_header)
-    # pdf.setFont(fontfamily,normalsize)
-    # pdf.drawString(leftmargin, section_start - 2*lineheight*normalsize, descriptiontext)
 
     lines = write_multiple_strings(pdf,leftmargin, section_start -(2*lineheight*normalsize), fontfamily, normalsize, descriptiontext)
 
@@ -298,7 +290,7 @@ def write_report(collection_info):
 def main():
     parser = argparse.ArgumentParser(
         description='This script lists modules in which static findings were identified.')
-    parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', default='075a6c4c-feb0-4f5f-ba8d-de0dd5c7345e')
+    parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', required=True)
     args = parser.parse_args()
 
     collguid = args.collectionsid
