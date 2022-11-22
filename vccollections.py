@@ -181,7 +181,8 @@ def write_summary(pdf, collection_info, username, report_time):
 
 def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], section_start, assets):
     secondcolumn = leftmargin + 250
-    thirdcolumn = leftmargin + 400
+    thirdcolumn = leftmargin + 350
+    fourthcolumn = leftmargin + 465
     iconspace = 15
     section_header = Collections().compliance_titles[compliance_type.upper()]
 
@@ -196,13 +197,15 @@ def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], s
     pdf.drawString(leftmargin, section_start - (lines + 2)  *lineheight*normalsize, 'Asset')
     pdf.drawString(secondcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Rules')
     pdf.drawString(thirdcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Scan Requirements')
+    pdf.drawString(fourthcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Last Scan Date')
     pdf.setFont(fontfamily, normalsize)
     index = 0
     for asset in assets:
         if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type:
             status_rules = asset['attributes'].get('policy_passed_rules')
-            status_scan = asset['attributes'].get('policy_passed_scan_requirements')
+            status_scan = asset['attributes'].get('policy_passed_scan_requirements')                          
             status_grace = asset['attributes'].get('policy_in_grace_period')
+            scan_date = asset['attributes'].get('last_completed_scan_date')
             if status_rules:
                 rules_icon = os.path.join('resources', 'small','pass.png')
                 rules_text = 'Passed'
@@ -219,11 +222,20 @@ def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], s
             else:
                 scan_icon = os.path.join('resources','small','fail.png')
                 scan_text = 'Did Not Pass'
+                
+            if scan_date:                
+                date_unfiltered = scan_date
+                datetimeobj = datetime.datetime.strptime(date_unfiltered, '%Y-%m-%dT%H:%M:%S.%f%z')
+                date_text = datetime.datetime.strftime(datetimeobj, '%m-%d-%Y %H:%M') 
+            else:
+                date_text = 'Not Scanned'
+                
             pdf.drawString(leftmargin, section_start - (lines + 3 +index) * lineheight * normalsize, asset['name'])
             pdf.drawImage(rules_icon, secondcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 8, 8)
             pdf.drawString(secondcolumn + iconspace, section_start - (lines + 3 +index) * lineheight * normalsize, rules_text)
             pdf.drawImage(scan_icon, thirdcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, 8, 8)
             pdf.drawString(thirdcolumn + iconspace, section_start - (lines + 3 +index) * lineheight * normalsize, scan_text)
+            pdf.drawString(fourthcolumn, section_start - (lines + 3 +index) * lineheight * normalsize, date_text)
 
             index += 1
 
