@@ -35,6 +35,9 @@ Otherwise you will need to set environment variables:
 
 Arguments supported include:
 
-* --collectionsid, -c  (required): Collections guid for which to create a report.
+* --collectionsid, -c:  Collections guid for which to create a report.
+* --name, -n:           Collections name for which to create a report.
+
+Note: one of the two arguments is required
 
 The Collections Report produces two outputs: a PDF and a CSV file.
