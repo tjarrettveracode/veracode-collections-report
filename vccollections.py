@@ -302,10 +302,34 @@ def write_report(collection_info):
 def main():
     parser = argparse.ArgumentParser(
         description='This script lists modules in which static findings were identified.')
-    parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', required=True)
+    parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', required=False)
+    parser.add_argument('-n', '--name', help='Collection name to generate a report for',required=False)
     args = parser.parse_args()
 
-    collguid = args.collectionsid
+    if (args.name is not None):
+       name = str(args.name)
+       collections =  Collections().get_by_name(args.name)
+       found = False
+       for collection in collections:
+           if (collection.get("name") == args.name):
+              found = True
+              collguid = collection.get("guid")
+              status = "Guid for collection: {} is {}".format(args.name,collguid)
+              print(status)
+              log.info(status)
+       if (not found):
+          status = "Collection: {} does not exist".format(args.name)
+          print(status)
+          log.info(status)
+          exit(1)
+    elif (args.collectionsid is not None):
+       collguid = args.collectionsid
+    else:
+       status = "Either a collection name or guid is required."
+       print(status)
+       log.info(status)
+       exit(1)
+
     setup_logger()
 
     # CHECK FOR CREDENTIALS EXPIRATION
