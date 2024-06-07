@@ -8,8 +8,13 @@ import json
 
 import anticrlf
 from reportlab.pdfgen import canvas
+from reportlab.lib import utils
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import Flowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.rl_config import defaultPageSize
+from reportlab.lib.units import inch
+
 
 
 from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
@@ -30,6 +35,10 @@ lineheight = 1.5
 smallprint = 6
 width, height = letter
 logo = os.path.join('resources','veracode-black-hires.jpg')
+
+PAGE_HEIGHT=defaultPageSize[1]
+PAGE_WIDTH=defaultPageSize[0]
+styles = getSampleStyleSheet()
 
 def setup_logger():
     handler = logging.FileHandler('vccollections.log', encoding='utf8')
@@ -132,36 +141,78 @@ def write_multiple_strings(pdf, startx, starty, fontfamily, size, strings=[]):
 
     return (counter+1)
 
-def write_cover_page(pdf, collection_name, user_name, report_time):
-    pdf.setFont(fontbold,titlesize)
-    pdf.drawImage(logo,leftmargin,height - 100, 220, 33)
+def get_image(path, width=1 * inch):
+    img = utils.ImageReader(path)
+    iw, ih = img.getSize()
+    aspect = ih / float(iw)
+    return Image(path, width=width, height=(width * aspect))
 
-    pdf.drawString(leftmargin, height - 144, "Collection Security Report")
-    pdf.setFont(fontfamily,normalsize)
-    pdf.drawString(leftmargin, height - (144+(2 * lineheight * normalsize)), collection_name)
-    pdf.drawString(leftmargin, height - (144+(3 * lineheight * normalsize)), user_name)
-    pdf.drawString(leftmargin, height - (144+(4 * lineheight * normalsize)), report_time)
+def cover_page(Story, collection_name, user_name, report_time):
+    
+    im = get_image(logo, 3*inch)
+    Story.append(im)
+    Story.append(Spacer(1,0.5*inch))
+    
+    styleSheet = getSampleStyleSheet()
+    titleStyle = styleSheet['Title']
+    Title=Paragraph('Collection Security Report',titleStyle)
+    Story.append(Title)
+    Story.append(Spacer(1,0.5*inch))
+    
+    style = styleSheet['h5']
+    collection_name_p=Paragraph("Collection name: {}".format(collection_name),style)
+    Story.append(collection_name_p)
+    prepared_by_p=Paragraph("Prepared by: {}".format(user_name),style)
+    Story.append(prepared_by_p)
+    date_p=Paragraph("Date: {}".format(report_time),style)
+    Story.append(date_p)
+    
+    tableData = []
+    
+    tableHeaders = ['Sections', 'Page']
+    
+    tableData.append(tableHeaders)
+    
+    tableData.append(['Executive Summary', '1'])
+    tableData.append(['Asset Policy Evaluation', '2'])
+    
+    t = Table(tableData)
+    
+    Story.append(t)
+    
+    
+    
 
-    pdf.setFont(fontbold, normalsize)
-    pdf.drawString(leftmargin, height - (144+(8 * lineheight * normalsize)), 'Sections')
-    pdf.drawString(leftmargin + 300, height - (144+(8 * lineheight * normalsize)), 'Page')
+def write_cover_page(canvas, collection_name, user_name, report_time):
+    canvas.saveState()
+    canvas.setFont(fontbold,titlesize)
+    canvas.drawImage(logo,leftmargin,height - 100, 220, 33)
 
-    pdf.setFont(fontfamily, normalsize)
-    pdf.drawString(leftmargin, height - (144+(10 * lineheight * normalsize)), 'Executive Summary')
-    pdf.drawString(leftmargin + 300, height - (144+(10 * lineheight * normalsize)), '1')
-    pdf.drawString(leftmargin, height - (144+(11 * lineheight * normalsize)), 'Asset Policy Evaluation')
-    pdf.drawString(leftmargin + 300, height - (144+(11 * lineheight * normalsize)), '2')
+    canvas.drawString(leftmargin, height - 144, "Collection Security Report")
+    canvas.setFont(fontfamily,normalsize)
+    canvas.drawString(leftmargin, height - (144+(2 * lineheight * normalsize)), collection_name)
+    canvas.drawString(leftmargin, height - (144+(3 * lineheight * normalsize)), user_name)
+    canvas.drawString(leftmargin, height - (144+(4 * lineheight * normalsize)), report_time)
 
-    pdf.setFont(fontfamily, smallprint)
-    pdf.drawString(leftmargin, 144, "Copyright 2021 Veracode, Inc.")
-    pdf.drawString(leftmargin, 144 - (2 * lineheight * smallprint), "{} and Veracode Confidential".format(user_name ))
-    pdf.drawString(leftmargin, 144 - (3 * lineheight * smallprint), "While every precaution has been taken in the preparation of this document, " +
+    canvas.setFont(fontbold, normalsize)
+    canvas.drawString(leftmargin, height - (144+(8 * lineheight * normalsize)), 'Sections')
+    canvas.drawString(leftmargin + 300, height - (144+(8 * lineheight * normalsize)), 'Page')
+
+    canvas.setFont(fontfamily, normalsize)
+    canvas.drawString(leftmargin, height - (144+(10 * lineheight * normalsize)), 'Executive Summary')
+    canvas.drawString(leftmargin + 300, height - (144+(10 * lineheight * normalsize)), '1')
+    canvas.drawString(leftmargin, height - (144+(11 * lineheight * normalsize)), 'Asset Policy Evaluation')
+    canvas.drawString(leftmargin + 300, height - (144+(11 * lineheight * normalsize)), '2')
+
+    canvas.setFont(fontfamily, smallprint)
+    canvas.drawString(leftmargin, 144, "Copyright 2021 Veracode, Inc.")
+    canvas.drawString(leftmargin, 144 - (2 * lineheight * smallprint), "{} and Veracode Confidential".format(user_name ))
+    canvas.drawString(leftmargin, 144 - (3 * lineheight * smallprint), "While every precaution has been taken in the preparation of this document, " +
         "Veracode, Inc. assumes no responsibility for errors, omissions, or for damages resulting from the use of the information herein. ")
-    pdf.drawString(leftmargin, 144 - (4 * lineheight * smallprint), "The Veracode Platform uses static and/or dynamic analysis techniques to discover " +
+    canvas.drawString(leftmargin, 144 - (4 * lineheight * smallprint), "The Veracode Platform uses static and/or dynamic analysis techniques to discover " +
         "potentially exploitable flaws. Due to the nature of software security testing, the lack fof discoverable flaws does not mean" )
-    pdf.drawString(leftmargin, 144 - (5 * lineheight * smallprint), "the software is 100 percent secure." )
-    pdf.showPage()
-
+    canvas.drawString(leftmargin, 144 - (5 * lineheight * smallprint), "the software is 100 percent secure." )
+    canvas.restoreState()
 
 
 def write_summary(pdf, collection_info, username, report_time):
@@ -376,6 +427,20 @@ def write_profile_pages(pdf, collection_info, username, report_time):
     write_footer(pdf,username, report_time,2)
     pdf.showPage()
 
+def coverPage(canvas, doc):
+    canvas.saveState()
+    canvas.setFont('Times-Bold',16)
+    canvas.drawCentredString(PAGE_WIDTH/2.0, PAGE_HEIGHT-108, Title)
+    canvas.setFont('Times-Roman',9)
+    canvas.drawString(inch, 0.75 * inch,"First Page / %s" % pageinfo)
+    canvas.restoreState()
+    
+def myLaterPages(canvas, doc):
+    canvas.saveState()
+    canvas.setFont('Times-Roman', 9)
+    canvas.drawString(inch, 0.75 * inch,"Page %d %s" % (doc.page, pageinfo))
+    canvas.restoreState()
+
 def write_report(collection_info):
     # cover page fields
     collection_name = collection_info.get('name')
@@ -383,17 +448,23 @@ def write_report(collection_info):
     username = thisuser.get('first_name') + ' ' + thisuser.get('last_name')
     report_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     report_name = "Veracode Collection - {}.pdf".format(collection_name)
-    pdf = canvas.Canvas("Veracode Collection - {}.pdf".format(collection_name),pagesize=letter)
-
-    write_cover_page(pdf,collection_name, username, report_time)
-
-    write_summary(pdf, collection_info, username, report_time)
-
-    write_asset_policy(pdf, collection_info, username, report_time)
-
-    write_profile_pages(pdf, collection_info, username, report_time)
+    # pdf = canvas.Canvas("Veracode Collection - {}.pdf".format(collection_name),pagesize=letter)
     
-    pdf.save()    
+    doc = SimpleDocTemplate(report_name)
+    Story = [Spacer(1,2*inch)]
+
+    cover_page(Story, collection_name, username, report_time)
+    
+    # write_cover_page(collection_name, username, report_time)
+
+    # write_summary(pdf, collection_info, username, report_time)
+
+    # write_asset_policy(pdf, collection_info, username, report_time)
+
+    # write_profile_pages(pdf, collection_info, username, report_time)
+    
+    # pdf.save()    
+    doc.build(Story)
 
     return report_name
 
