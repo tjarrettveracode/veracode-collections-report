@@ -8,10 +8,11 @@ import json
 
 import anticrlf
 from reportlab.pdfgen import canvas
-from reportlab.lib import utils
+from reportlab.lib import utils, colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 from reportlab.rl_config import defaultPageSize
 from reportlab.lib.units import inch
 
@@ -34,11 +35,37 @@ normalsize = 10
 lineheight = 1.5
 smallprint = 6
 width, height = letter
+printable_width = 0
 logo = os.path.join('resources','veracode-black-hires.jpg')
+spacer = Spacer(1,0.5*inch)
 
 PAGE_HEIGHT=defaultPageSize[1]
 PAGE_WIDTH=defaultPageSize[0]
 styles = getSampleStyleSheet()
+styles.add(ParagraphStyle(name='Normal12',
+                                  parent=styles['Normal'],
+                                  fontSize=12),
+                   alias='n12')
+styles.add(ParagraphStyle(name='Heading5Right',
+                                  parent=styles['h5'],
+                                  alignment=TA_RIGHT),
+                   alias='h5r')
+styles.add(ParagraphStyle(name='HeaderFooter',
+                                  parent=styles['Normal'],
+                                  fontSize=6,
+                                  leading=8),
+                   alias='hf')
+styles.add(ParagraphStyle(name='HeaderFooterRight',
+                                  parent=styles['hf'],
+                                  alignment=TA_RIGHT),
+                   alias='hfr')
+
+title = 'Veracode Collection Report'
+collection_name = ''
+report_time = ''
+username = ''
+copyright_year = ''
+
 
 def setup_logger():
     handler = logging.FileHandler('vccollections.log', encoding='utf8')
@@ -115,109 +142,59 @@ def get_policy_violating_findings(apps):
     all_findings['collection_summary'] = collection_summary
     return all_findings
 
-
-def write_header(pdf,collection_name):
-    pdf.setFont(fontfamily,smallprint)
-    pdf.drawString(leftmargin, height - 50, "Collection: {}".format(collection_name))
-    pdf.drawImage(logo,width - 100, height - 50, 50,8 )
-    
-def write_footer(pdf, username, report_time, page_number):
-    pdf.setFont(fontfamily,smallprint)
-    pdf.drawString(leftmargin, 50, "Copyright 2021 Veracode Inc.    Prepared {}     {} and Veracode Confidential".format(username,report_time))
-    pdf.drawString(width - 50, 50, str(page_number))
-
-def write_multiple_strings(pdf, startx, starty, fontfamily, size, strings=[]):
-    # iterates over a number of strings and writes to the page; returns a line count that you can add to the value of starty for the next line
-    # (yes this is a poor man's flowable)
-
-    pdf.saveState()
-    pdf.setFont(fontfamily, size)
-    counter = 0
-    for string in strings:
-        pdf.drawString(startx, starty - (counter*lineheight*size), string)
-        counter += 1
-
-    pdf.restoreState()
-
-    return (counter+1)
-
 def get_image(path, width=1 * inch):
     img = utils.ImageReader(path)
     iw, ih = img.getSize()
     aspect = ih / float(iw)
     return Image(path, width=width, height=(width * aspect))
 
-def cover_page(Story, collection_name, user_name, report_time):
+def cover_page(Story, user_name, report_time):
     
     im = get_image(logo, 3*inch)
     Story.append(im)
-    Story.append(Spacer(1,0.5*inch))
+    Story.append(spacer)
     
-    styleSheet = getSampleStyleSheet()
-    titleStyle = styleSheet['Title']
+    titleStyle = styles['Title']
     Title=Paragraph('Collection Security Report',titleStyle)
     Story.append(Title)
-    Story.append(Spacer(1,0.5*inch))
+    Story.append(spacer)
     
-    style = styleSheet['h5']
-    collection_name_p=Paragraph("Collection name: {}".format(collection_name),style)
+    style = styles['Normal']
+    collection_name_p=Paragraph("<b>Collection name:</b> {}".format(collection_name),style)
     Story.append(collection_name_p)
-    prepared_by_p=Paragraph("Prepared by: {}".format(user_name),style)
+    prepared_by_p=Paragraph("<b>Prepared by:</b> {}".format(user_name),style)
     Story.append(prepared_by_p)
-    date_p=Paragraph("Date: {}".format(report_time),style)
+    date_p=Paragraph("<b>Date:</b> {}".format(report_time),style)
     Story.append(date_p)
+    Story.append(spacer)
     
     tableData = []
     
-    tableHeaders = ['Sections', 'Page']
+    styleH5 = styles['h5']
+    section = Paragraph('Sections',styleH5)
+    page = Paragraph('Page',styles['h5r'])
+    
+    tableHeaders = [section, page]
     
     tableData.append(tableHeaders)
     
     tableData.append(['Executive Summary', '1'])
     tableData.append(['Asset Policy Evaluation', '2'])
     
-    t = Table(tableData)
+    tstyle = TableStyle(
+        [('LINEABOVE', (0,0), (-1,0), 2, colors.black),
+        ('LINEBELOW', (0,0), (-1,0), 2, colors.black),
+        ('LINEABOVE', (0,2), (-1,-1), 0.25, colors.black),
+        ('LINEBELOW', (0,-1), (-1,-1), 2, colors.black),
+        ('ALIGN', (1,0), (-1,-1), 'RIGHT')]
+    ) 
     
+    t = Table(tableData,[0.9*printable_width, 0.1*printable_width])
+    t.setStyle(tstyle)
     Story.append(t)
+    Story.append(PageBreak())
     
-    
-    
-
-def write_cover_page(canvas, collection_name, user_name, report_time):
-    canvas.saveState()
-    canvas.setFont(fontbold,titlesize)
-    canvas.drawImage(logo,leftmargin,height - 100, 220, 33)
-
-    canvas.drawString(leftmargin, height - 144, "Collection Security Report")
-    canvas.setFont(fontfamily,normalsize)
-    canvas.drawString(leftmargin, height - (144+(2 * lineheight * normalsize)), collection_name)
-    canvas.drawString(leftmargin, height - (144+(3 * lineheight * normalsize)), user_name)
-    canvas.drawString(leftmargin, height - (144+(4 * lineheight * normalsize)), report_time)
-
-    canvas.setFont(fontbold, normalsize)
-    canvas.drawString(leftmargin, height - (144+(8 * lineheight * normalsize)), 'Sections')
-    canvas.drawString(leftmargin + 300, height - (144+(8 * lineheight * normalsize)), 'Page')
-
-    canvas.setFont(fontfamily, normalsize)
-    canvas.drawString(leftmargin, height - (144+(10 * lineheight * normalsize)), 'Executive Summary')
-    canvas.drawString(leftmargin + 300, height - (144+(10 * lineheight * normalsize)), '1')
-    canvas.drawString(leftmargin, height - (144+(11 * lineheight * normalsize)), 'Asset Policy Evaluation')
-    canvas.drawString(leftmargin + 300, height - (144+(11 * lineheight * normalsize)), '2')
-
-    canvas.setFont(fontfamily, smallprint)
-    canvas.drawString(leftmargin, 144, "Copyright 2021 Veracode, Inc.")
-    canvas.drawString(leftmargin, 144 - (2 * lineheight * smallprint), "{} and Veracode Confidential".format(user_name ))
-    canvas.drawString(leftmargin, 144 - (3 * lineheight * smallprint), "While every precaution has been taken in the preparation of this document, " +
-        "Veracode, Inc. assumes no responsibility for errors, omissions, or for damages resulting from the use of the information herein. ")
-    canvas.drawString(leftmargin, 144 - (4 * lineheight * smallprint), "The Veracode Platform uses static and/or dynamic analysis techniques to discover " +
-        "potentially exploitable flaws. Due to the nature of software security testing, the lack fof discoverable flaws does not mean" )
-    canvas.drawString(leftmargin, 144 - (5 * lineheight * smallprint), "the software is 100 percent secure." )
-    canvas.restoreState()
-
-
-def write_summary(pdf, collection_info, username, report_time):
-    column2 = 300
-
+def summary_page(Story, collection_info):
     compliance_status = Collections().compliance_titles[collection_info.get('compliance_status').lower()]
     compliance_status_description = 'one or more assets did not pass policy'
     collection_description = collection_info.get('description')
@@ -226,245 +203,362 @@ def write_summary(pdf, collection_info, username, report_time):
 
     compliance_overview = collection_info.get('compliance_overview')
 
-    write_header(pdf,collection_info.get('name'))
 
-    pdf.setFont(fontfamily,h1size)
-    pdf.drawString(leftmargin, height - 100, "Executive Summary")
-    pdf.setFont(fontfamily,normalsize)
-    pdf.drawString(leftmargin, height - 120, "Collection")
-    pdf.drawString(leftmargin + 150, height - 120, collection_info.get('name'))
-    pdf.drawString(leftmargin, height - (120 + 2*lineheight*normalsize), "Status")
-    pdf.drawString(leftmargin + 150, height - (120 + 2*lineheight*normalsize), compliance_status)
-    pdf.setFont(fontitalic,normalsize)
-    pdf.drawString(leftmargin + 150, height - (120 + 3*lineheight*normalsize), compliance_status_description)
-    pdf.setFont(fontfamily,normalsize)
-    pdf.drawString(leftmargin, height - (120 + 4*lineheight*normalsize), "Description")
-    pdf.drawString(leftmargin + 150, height - (120 + 4*lineheight*normalsize), collection_description)
-    pdf.drawString(leftmargin, height - (120 + 5*lineheight*normalsize), "Assets")
-    pdf.drawString(leftmargin + 150, height - (120 + 5*lineheight*normalsize), str((collection_info.get('total_assets'))))
+    sectionTitle=Paragraph('Executive Summary',styles['h1'])
+    Story.append(sectionTitle)
+    Story.append(spacer)
 
-    pdf.setFont(fontbold, h2size)
-    pdf.drawString(leftmargin, height - (120 + 8*lineheight*normalsize), 'Compliance Overview')
-    pdf.setFont(fontfamily, normalsize)
-    pdf.drawString(leftmargin, height - (120 + 10*lineheight*normalsize), 'Did Not Pass: {}'.format(compliance_overview['not_passing_policy']))
-    pdf.drawString(leftmargin, height - (120 + 11*lineheight*normalsize), 'Passed: {}'.format(compliance_overview['passing_policy']))
-    pdf.drawString(leftmargin, height - (120 + 12*lineheight*normalsize), 'Conditionally Pass: {}'.format(compliance_overview['conditionally_passing_policy']))
-    pdf.drawString(leftmargin, height - (120 + 13*lineheight*normalsize), 'Not Assessed: {}'.format(compliance_overview['not_assessed']))
+    summaryTableData = []
+    summaryTableData.append(['Collection', collection_name])
 
-    row_start_height = 8
+    compliance_status_paragraph = Paragraph(compliance_status + "<br/><i>" + compliance_status_description + "</i>",styles['Normal'])
+    summaryTableData.append(['Status', compliance_status_paragraph])
+
+    summaryTableData.append(['Collection Description', collection_description])
     
-    write_findings_summary(pdf, column2, row_start_height, findingsbysev)
+    summaryTableData.append(['Assets', collection_info.get('total_assets')])
+    summaryTable = Table(summaryTableData,[0.5*printable_width, 0.5*printable_width])
+    tstyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'TOP')]
+    ) 
+    summaryTable.setStyle(tstyle)
+    Story.append(summaryTable)
 
-    write_footer(pdf, username, report_time,1)
-    pdf.showPage()
+    Story.append(spacer)
 
-def write_findings_summary(pdf, column_start, row_start_height, findingsbysev):
-    pdf.setFont(fontbold, h2size)
-    pdf.drawString(column_start, height - (120 + (row_start_height)*lineheight * normalsize), "Open Findings Impacting Policy")
-    pdf.setFont(fontfamily, normalsize)
+    wrappperTableData = []
+
+    complianceOverviewTableData = []
+    complianceOverviewTableData.append([Paragraph('Compliance Overview', styles['h3']), ''])
+    complianceOverviewTableData.append(['', ''])
+    complianceOverviewTableData.append([Paragraph('Did Not Pass:'), compliance_overview['not_passing_policy']])
+    complianceOverviewTableData.append([Paragraph('Passed:'), compliance_overview['passing_policy']])
+    complianceOverviewTableData.append([Paragraph('Conditionally Pass:'), compliance_overview['conditionally_passing_policy']])
+    complianceOverviewTableData.append([Paragraph('Not Assessed:'), compliance_overview['not_assessed']])
+    complianceOverviewTable = Table(complianceOverviewTableData,[0.3*printable_width, 0.1*printable_width])
+    complianceOverviewStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'TOP'),
+         ('ALIGN',(0,0),(-1,-1),'RIGHT')]
+    ) 
+    complianceOverviewTable.setStyle(complianceOverviewStyle)
+    complianceOverviewTable.hAlign = 'LEFT'
     
-    pdf.drawString(column_start, height - (120 + (row_start_height + 2)*lineheight * normalsize), "Very High Severity: {}".format(findingsbysev['sev5']))
-    pdf.drawString(column_start, height - (120 + (row_start_height + 3)*lineheight * normalsize), "High Severity: {}".format(findingsbysev['sev4']))
-    pdf.drawString(column_start, height - (120 + (row_start_height + 4)*lineheight * normalsize), "Medium Severity: {}".format(findingsbysev['sev3']))
-    pdf.drawString(column_start, height - (120 + (row_start_height + 5)*lineheight * normalsize), "Low Severity: {}".format(findingsbysev['sev2']))
-    pdf.drawString(column_start, height - (120 + (row_start_height + 6)*lineheight * normalsize), "Very Low Severity: {}".format(findingsbysev['sev1']))
-    pdf.drawString(column_start, height - (120 + (row_start_height + 7)*lineheight * normalsize), "Informational Severity: {}".format(findingsbysev['sev0']))
+    openFindingsPolicyTable = findings_summary(findingsbysev)
 
-def write_asset_section(pdf, compliance_type, icon, descriptiontext:list[str], section_start, assets, findings_list):
-    secondcolumn = leftmargin + 250
-    thirdcolumn = leftmargin + 350
-    fourthcolumn = leftmargin + 465
-    iconspace = 15
-    section_header = Collections().compliance_titles[compliance_type.upper()]
+    wrappperTableData.append([complianceOverviewTable, openFindingsPolicyTable])
+    wrapperTable = Table(wrappperTableData, [0.5*printable_width, 0.5*printable_width])
+    wrapperTableStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'TOP')]
+    ) 
+    wrapperTable.setStyle(wrapperTableStyle)
+    wrapperTable.hAlign = 'LEFT'
+    Story.append(wrapperTable)
+    
+    Story.append(PageBreak())
 
-    pdf.drawImage(icon,leftmargin, section_start - 2, 13, 16) #drop the icon a little below the text line
-    pdf.setFont(fontfamily,h2size)
-    pdf.drawString(leftmargin + 20, section_start, section_header)
+def findings_summary(findingsbysev):
+    openFindingsPolicyTableData = []
+    openFindingsPolicyTableData.append([Paragraph('Open Findings Impacting Policy', styles['h3']), ''])
+    openFindingsPolicyTableData.append(['', ''])
+    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), findingsbysev['sev5']])
+    openFindingsPolicyTableData.append([Paragraph('High Severity:'), findingsbysev['sev4']])
+    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), findingsbysev['sev3']])
+    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), findingsbysev['sev2']])
+    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), findingsbysev['sev1']])
+    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), findingsbysev['sev0']])
+    openFindingsPolicyTable = Table(openFindingsPolicyTableData,[0.3*printable_width, 0.1*printable_width])
+    openFindingsPolicyStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'TOP'),
+         ('SPAN',(0,0),(1,0)),
+         ('ALIGN',(1,0),(-1,-1),'RIGHT')]
+    ) 
+    openFindingsPolicyTable.setStyle(openFindingsPolicyStyle)
+    openFindingsPolicyTable.hAlign = 'LEFT'
+    return openFindingsPolicyTable
 
-    lines = write_multiple_strings(pdf,leftmargin, section_start -(2*lineheight*normalsize), fontfamily, normalsize, descriptiontext)
-
-    # list of assets with the policy compliance 
-    pdf.setFont(fontbold, normalsize)
-    pdf.drawString(leftmargin, section_start - (lines + 2)  *lineheight*normalsize, 'Asset')
-    pdf.drawString(secondcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Rules')
-    pdf.drawString(thirdcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Scan Requirements')
-    pdf.drawString(fourthcolumn, section_start - (lines + 2) *lineheight*normalsize, 'Last Scan Date')
-    pdf.setFont(fontfamily, normalsize)
-    index = 0
-    for asset in assets:
-        if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type:
-            section_start_inline = section_start - (lines + 3 +index) * lineheight * normalsize
-            
-            write_asset_compliance_summary(pdf, secondcolumn, thirdcolumn, fourthcolumn, iconspace, asset, section_start_inline)
-
-            index += 1
-
-def write_asset_compliance_summary(pdf, secondcolumn, thirdcolumn, fourthcolumn, iconspace, asset, section_start_inline):
-    status_rules = asset['attributes'].get('policy_passed_rules')
-    status_scan = asset['attributes'].get('policy_passed_scan_requirements')                          
-    status_grace = asset['attributes'].get('policy_in_grace_period')
-    scan_date = asset['attributes'].get('last_completed_scan_date')
-    if status_rules:
-        rules_icon = os.path.join('resources', 'small','pass.png')
-        rules_text = 'Passed'
-    elif status_grace:
-        rules_icon = os.path.join('resources','small', 'conditional.png')
-        rules_text = 'Within Grace Period'
-    else:
-        rules_icon = os.path.join('resources','small','fail.png')
-        rules_text = 'Did Not Pass'
-
-    if status_scan:
-        scan_icon = os.path.join('resources','small','pass.png')
-        scan_text = 'Passed'
-    else:
-        scan_icon = os.path.join('resources','small','fail.png')
-        scan_text = 'Did Not Pass'
-                
-    if scan_date:                
-        date_unfiltered = scan_date
-        datetimeobj = datetime.datetime.strptime(date_unfiltered, '%Y-%m-%dT%H:%M:%S.%f%z')
-        date_text = datetime.datetime.strftime(datetimeobj, '%m-%d-%Y %H:%M') 
-    else:
-        date_text = 'Not Scanned'
-                
-    pdf.drawString(leftmargin, section_start_inline, asset['name'])
-    pdf.drawImage(rules_icon, secondcolumn, section_start_inline, 8, 8)
-    pdf.drawString(secondcolumn + iconspace, section_start_inline, rules_text)
-    pdf.drawImage(scan_icon, thirdcolumn, section_start_inline, 8, 8)
-    pdf.drawString(thirdcolumn + iconspace, section_start_inline, scan_text)
-    pdf.drawString(fourthcolumn, section_start_inline, date_text)
-
-def write_asset_policy(pdf, collection_info, username, report_time):
-    findings_list = collection_info.get('findings_list')
+def asset_policy_evaluation_page(Story, collection_info):
     assets = collection_info.get('asset_infos')
     
     didnotpassicon = os.path.join('resources','fail.png')
     conditionalicon = os.path.join('resources','conditional.png')
     passicon = os.path.join('resources','pass.png')
     notassessicon = os.path.join('resources','notassessed.png')
-    
-
-    write_header(pdf,collection_info.get('name'))
-    pdf.setFont(fontfamily,h1size)
-    pdf.drawString(leftmargin, height - 120, 'Asset Policy Evaluation')
 
     not_passed = collection_info['compliance_overview']['not_passing_policy']
     conditional = collection_info['compliance_overview']['conditionally_passing_policy']
     passed = collection_info['compliance_overview']['passing_policy']
     not_assessed = collection_info['compliance_overview']['not_assessed']
+    
+    sectionTitle=Paragraph('Asset Policy Evaluation',styles['h1'])
+    Story.append(sectionTitle)
+    Story.append(spacer)
 
     if not_passed > 0:
         # section - did not pass
-        didnotpasstext = ['These assets have findings that violate policy rules and exceeded the remediation grace period or they have not been',
-                            'scanned at the required frequency.']
-        write_asset_section(pdf, 'DID_NOT_PASS', didnotpassicon, didnotpasstext, height - ( 120 + 3*lineheight*normalsize),assets, findings_list)
+        didnotpasstext = 'These assets have findings that violate policy rules and exceeded the remediation grace period or they have not been scanned at the required frequency.'
+        
+        asset_policy_evaluation_section(Story, 'DID_NOT_PASS', didnotpassicon, didnotpasstext, assets)
 
     if conditional > 0:
         # section - conditional
-        conditionaltext = ['These assets have findings that violate policy rules and are within the remediation grace period and they have been',
-                            'scanned at the required frequency.']
-        write_asset_section(pdf, 'CONDITIONAL_PASS', conditionalicon, conditionaltext, height - ( 120 + (not_passed+11)*lineheight*normalsize),assets, findings_list)
+        conditionaltext = 'These assets have findings that violate policy rules and are within the remediation grace period and they have been scanned at the required frequency'
+        asset_policy_evaluation_section(Story, 'CONDITIONAL_PASS', conditionalicon, conditionaltext, assets)
 
     if passed > 0:
         # section - passed
-        passedtext = ['These assets passed all the aspects of the policy, including rules and required scans.']
-        write_asset_section(pdf, 'PASSED', passicon, passedtext, height - ( 120 + (not_passed + conditional + 19 )*lineheight*normalsize),assets, findings_list)
+        passedtext = 'These assets passed all the aspects of the policy, including rules and required scans.'
+        asset_policy_evaluation_section(Story, 'PASSED', passicon, passedtext, assets)
 
     if not_assessed > 0:
         # section - not assessed
-        notassessedtext = ['These assets have not been scanned.']
-        write_asset_section(pdf, 'NOT_ASSESSED', notassessicon, notassessedtext, height - ( 120 + (not_passed + conditional + passed + 30) *lineheight*normalsize),assets, findings_list)
+        notassessedtext = 'These assets have not been scanned.'
+        asset_policy_evaluation_section(Story, 'NOT_ASSESSED', notassessicon, notassessedtext, assets)
+    Story.append(PageBreak())
 
-    write_footer(pdf,username, report_time,2)
-    pdf.showPage()
+def asset_policy_evaluation_section(Story, compliance_type, icon, descriptiontext, assets):
     
-def write_profile_section(pdf,  profile_guid, profile, section_start):
-    # pdf.setFont(fontbold, h2size)
-    # pdf.drawString(leftmargin, height - (120 + 8*lineheight*normalsize), 'Compliance Overview')
-    # pdf.setFont(fontfamily, normalsize)
-    # pdf.drawString(leftmargin, height - (120 + 10*lineheight*normalsize), 'Did Not Pass: {}'.format(compliance_overview['not_passing_policy']))
-    # pdf.drawString(leftmargin, height - (120 + 11*lineheight*normalsize), 'Passed: {}'.format(compliance_overview['passing_policy']))
-    # pdf.setFont(fontfamily,h2size)
-    secondcolumn = leftmargin + 250
-    thirdcolumn = leftmargin + 350
-    fourthcolumn = leftmargin + 465
-    iconspace = 15
-    
-    pdf.setFont(fontbold, h2size)
-    pdf.drawString(leftmargin, section_start - 1 * lineheight * normalsize, profile['asset_info']['name'])
-    
-    pdf.setFont(fontbold, normalsize)
-    pdf.drawString(leftmargin, section_start - 3 *lineheight*normalsize, 'Asset')
-    pdf.drawString(secondcolumn, section_start - 3 *lineheight*normalsize, 'Rules')
-    pdf.drawString(thirdcolumn, section_start - 3 *lineheight*normalsize, 'Scan Requirements')
-    pdf.drawString(fourthcolumn, section_start - 3 *lineheight*normalsize, 'Last Scan Date')
-    pdf.setFont(fontfamily, normalsize)
-    write_findings_summary(pdf, leftmargin, section_start, profile['summary_info'])
-    
-    section_start_inline = section_start - 12 * lineheight * normalsize
-    pdf.setFont(fontfamily, normalsize)
-    write_asset_compliance_summary(pdf, secondcolumn, thirdcolumn, fourthcolumn, iconspace, profile['asset_info'], section_start_inline)
-    
-    lines = write_multiple_strings(pdf, leftmargin, section_start - 13 * lineheight * normalsize, fontfamily, normalsize, [profile_guid])
-    return lines + 14
+    section_header = Paragraph(Collections().compliance_titles[compliance_type.upper()],styles['n12'])
+    sectionTitleTableData = []
+    im = get_image(icon, .2*inch)
+    sectionTitleTableData.append([im, section_header])
+    sectionTitleTable = Table(sectionTitleTableData, [0.4*inch, 3*inch])
+    sectionTitleTableStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+         ('BOTTOMPADDING',(0,0),(-1,-1),10)]
+    ) 
+    sectionTitleTable.setStyle(sectionTitleTableStyle)
+    sectionTitleTable.hAlign = 'LEFT'
+    Story.append(sectionTitleTable)
 
-def write_profile_pages(pdf, collection_info, username, report_time):
-    write_header(pdf,collection_info.get('name'))
+    Story.append(Paragraph(descriptiontext))
+    Story.append(Spacer(1,0.25*inch))
+    profile_summary_table(Story, compliance_type, assets)
+    Story.append(spacer)
+
+def profile_summary_table(Story, compliance_type, assets):
+    assetTableData = []
+    assetTableData.append([Paragraph('<b>Asset</b>'),Paragraph('<b>Rules</b>'),Paragraph('<b>Scan Requirements</b>'),Paragraph('<b>Last Scan Date</b>')])
+                    
+    pass_icon = get_image(os.path.join('resources', 'small','pass.png'), .1*inch)
+    conditional_icon = get_image(os.path.join('resources','small', 'conditional.png'), .1*inch)
+    fail_icon = get_image(os.path.join('resources','small','fail.png'), .1*inch)
+    tableStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'MIDDLE')]
+    ) 
+    ps = styles['Normal']
+    for asset in assets:
+        if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type or compliance_type is None:
+            status_rules = asset['attributes'].get('policy_passed_rules')
+            status_scan = asset['attributes'].get('policy_passed_scan_requirements')                          
+            status_grace = asset['attributes'].get('policy_in_grace_period')
+            scan_date = asset['attributes'].get('last_completed_scan_date')
+            if status_rules:
+                rules_icon = pass_icon
+                rules_text = Paragraph('Passed', ps)
+            elif status_grace:
+                rules_icon = conditional_icon
+                rules_text = Paragraph('Within Grace Period', ps)
+            else:
+                rules_icon = fail_icon
+                rules_text = Paragraph('Did Not Pass', ps)
+            if status_scan:
+                scan_icon = pass_icon
+                scan_text = Paragraph('Passed', ps)
+            else:
+                scan_icon = fail_icon
+                scan_text = Paragraph('Did Not Pass', ps)
+                        
+            if scan_date:                
+                date_unfiltered = scan_date
+                datetimeobj = datetime.datetime.strptime(date_unfiltered, '%Y-%m-%dT%H:%M:%S.%f%z')
+                date_text = Paragraph(datetime.datetime.strftime(datetimeobj, '%m-%d-%Y %H:%M'), ps) 
+            else:
+                date_text = Paragraph('Not Scanned', ps)
+            
+            rulesCellTableData = []
+            rulesCellTableData.append([rules_icon, rules_text])
+            rulesCellTable = Table(rulesCellTableData, [0.03*printable_width,0.22*printable_width])
+            rulesCellTableStyle = TableStyle(
+                [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                 ('LEFTPADDING',(0,0),(-1,-1),0),
+                 ('RIGHTPADDING',(0,0),(-1,-1),0),
+                 ('TOPPADDING',(0,0),(-1,-1),0),
+                 ('BOTTOMPADDING',(0,0),(-1,-1),0)]
+            ) 
+            rulesCellTable.setStyle(rulesCellTableStyle)
+
+            scanCellTableData = []
+            scanCellTableData.append([scan_icon, scan_text])
+            scanCellTable = Table(scanCellTableData, [0.03*printable_width,0.22*printable_width])
+            scanCellTableStyle = TableStyle(
+                [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                 ('LEFTPADDING',(0,0),(-1,-1),0),
+                 ('RIGHTPADDING',(0,0),(-1,-1),0),
+                 ('TOPPADDING',(0,0),(-1,-1),0),
+                 ('BOTTOMPADDING',(0,0),(-1,-1),0)]
+            ) 
+            scanCellTable.setStyle(scanCellTableStyle)
+            assetName = Paragraph(asset['name'], ps)
+            assetTableData.append([assetName, rulesCellTable, scanCellTable, date_text])
+    
+    
+    assetTable = Table(assetTableData, [0.3*printable_width, 0.25*printable_width,0.25*printable_width,0.2*printable_width])
+
+    assetTable.setStyle(tableStyle)
+    Story.append(assetTable)
+
+def profile_pages(Story, collection_info):
     findings_list = collection_info.get('findings_list')
-    pdf.setFont(fontfamily,h1size)
-    pdf.drawString(leftmargin, height - 120, 'Profile Summaries')
-    section_start = height - (120 + 1*lineheight * normalsize)
-    section_start_status = "Section Start: {}".format(section_start)
-    log.info(section_start_status)
-    index = 0
+    assets = collection_info.get('asset_infos')
+
+    sectionTitle=Paragraph('Profile Summaries',styles['h1'])
+    Story.append(sectionTitle)
+    Story.append(spacer)
     for profile in findings_list:
-        lines = write_profile_section(pdf, profile, findings_list[profile], section_start)
-        section_start = section_start - (lines* lineheight * normalsize)
-        section_start_status = "Section Start: {}".format(section_start)
-        log.info(section_start_status)
-        index += 1
-    write_footer(pdf,username, report_time,2)
-    pdf.showPage()
+        profile_section(Story, profile, findings_list[profile])
+
+def profile_section(Story, profile_guid, profile):
+    pass_icon = os.path.join('resources','pass.png')
+    conditional_icon = os.path.join('resources', 'conditional.png')
+    fail_icon = os.path.join('resources','fail.png')
+    not_assess_icon = os.path.join('resources','notassessed.png')
+    
+    asset_info = profile['asset_info']
+    asset_attributes = asset_info['attributes']
+    display_icon = not_assess_icon
+    if(asset_attributes['policy_passed_scan_requirements']):
+        if(asset_attributes['policy_passed_rules']):
+            display_icon = pass_icon
+        elif(asset_attributes['policy_in_grace_period']):
+            display_icon = conditional_icon
+        else:
+            display_icon = fail_icon    
+    else:
+        display_icon = fail_icon
+    icon = get_image(display_icon, .2*inch)
+    profileName=Paragraph(profile['asset_info']['name'],styles['h3'])
+    titleCellTableData = []
+    titleCellTableData.append([icon, profileName])
+    titleCellTable = Table(titleCellTableData, [0.05*printable_width,0.9*printable_width])
+    titleCellTableStyle = TableStyle(
+        [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('LEFTPADDING',(0,0),(-1,-1),0),
+            ('RIGHTPADDING',(0,0),(-1,-1),0),
+            ('TOPPADDING',(0,0),(-1,-1),0),
+            ('BOTTOMPADDING',(0,0),(-1,-1),0)]
+    ) 
+    titleCellTable.setStyle(titleCellTableStyle)
+    titleCellTable.hAlign = 'LEFT'
+    Story.append(titleCellTable)
+    Story.append(Spacer(1, .25*inch))
+    
+    profile_summary_table(Story, None, [asset_info])
+    Story.append(Spacer(1, .25*inch))
+    Story.append(findings_summary(profile['summary_info']))
+    Story.append(Spacer(1, .25*inch))
+
+def _header(canvas, doc, content):
+    # Header
+    header = content
+    w, h = header.wrap(doc.width, doc.topMargin)
+    header.drawOn(canvas, doc.leftMargin, doc.height + doc.topMargin + h)
+
+def _footer(canvas, doc, content):
+    # Footer
+    footer = content
+    w, h = footer.wrap(doc.width, doc.bottomMargin)
+    footer.drawOn(canvas, doc.leftMargin, h+40)
 
 def coverPage(canvas, doc):
+    # Save the state of our canvas so we can draw on it
     canvas.saveState()
-    canvas.setFont('Times-Bold',16)
-    canvas.drawCentredString(PAGE_WIDTH/2.0, PAGE_HEIGHT-108, Title)
-    canvas.setFont('Times-Roman',9)
-    canvas.drawString(inch, 0.75 * inch,"First Page / %s" % pageinfo)
-    canvas.restoreState()
+    copyright = "Copyright {} Veracode, Inc. <br/><br/>While every precaution has been taken in the preparation of this document, Veracode, Inc. assumes no responsibility for errors, omissions, or for damages resulting from the use of the information herein. The Veracode Platform uses static and/or dynamic analysis techniques to discover potentially exploitable flaws. Due to the nature of software security testing, the lack fof discoverable flaws does not mean the software is 100 percent secure".format(copyright_year)
+    copyright_footer = Paragraph(copyright, styles['hf'])
+    footerTableData = []
+
+    footerTableData.append([copyright_footer])    
+    tstyle = TableStyle(
+        [('ALIGN', (1,0), (-1,-1), 'LEFT')]
+    ) 
     
-def myLaterPages(canvas, doc):
-    canvas.saveState()
-    canvas.setFont('Times-Roman', 9)
-    canvas.drawString(inch, 0.75 * inch,"Page %d %s" % (doc.page, pageinfo))
+    ft = Table(footerTableData,[doc.width])
+    ft.setStyle(tstyle)
+    _footer(canvas, doc, ft)
+    
+    # Release the canvas
     canvas.restoreState()
+
+def otherPage(canvas, doc):
+    # Save the state of our canvas so we can draw on it
+    canvas.saveState()
+    headerTableData = []
+    
+    collection = Paragraph("Collection: {}".format(collection_name), styles['hf'])
+    im = get_image(logo, .75*inch)
+    headerTableData.append([collection, im])    
+    tstyle = TableStyle(
+        [('ALIGN', (1,0), (-1,-1), 'RIGHT')]
+    ) 
+    
+    ht = Table(headerTableData,[0.5*doc.width, 0.5*doc.width])
+    ht.setStyle(tstyle)
+    _header(canvas, doc, ht)
+
+    copyright_footer = Paragraph("Copyright {} Veracode Inc.    Prepared {}     {} and Veracode Confidential".format(copyright_year,username,report_time), styles['hf'])
+    footerTableData = []
+    
+    page_number = Paragraph("Page {}".format(doc.page), styles['hfr'])
+
+    footerTableData.append([copyright_footer, page_number])    
+    tstyle = TableStyle(
+        [('ALIGN', (1,0), (-1,-1), 'RIGHT')]
+    ) 
+    
+    ft = Table(footerTableData,[0.8*doc.width, 0.2*doc.width])
+    ft.setStyle(tstyle)
+    _footer(canvas, doc, ft)
+    
+    # Release the canvas
+    canvas.restoreState()
+
+
 
 def write_report(collection_info):
     # cover page fields
+    global collection_name 
     collection_name = collection_info.get('name')
     thisuser = get_self()
+    global username
     username = thisuser.get('first_name') + ' ' + thisuser.get('last_name')
-    report_time = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    global report_time
+    today = datetime.datetime.now()
+    report_time = today.strftime("%d/%m/%Y %H:%M:%S")
+    global copyright_year 
+    copyright_year = today.strftime("%Y")
     report_name = "Veracode Collection - {}.pdf".format(collection_name)
     # pdf = canvas.Canvas("Veracode Collection - {}.pdf".format(collection_name),pagesize=letter)
     
-    doc = SimpleDocTemplate(report_name)
-    Story = [Spacer(1,2*inch)]
+    doc = SimpleDocTemplate(report_name,
+                            rightMargin=.5*inch,
+                            leftMargin=.5*inch,
+                            topMargin=72,
+                            bottomMargin=72,)
+    global printable_width
+    # printable_width = doc.width - doc.rightMargin - doc.leftMargin
+    printable_width = doc.width *0.95
+    Story = [spacer]
 
-    cover_page(Story, collection_name, username, report_time)
-    
-    # write_cover_page(collection_name, username, report_time)
+    cover_page(Story, username, report_time)
 
-    # write_summary(pdf, collection_info, username, report_time)
+    summary_page(Story, collection_info)
 
-    # write_asset_policy(pdf, collection_info, username, report_time)
+    asset_policy_evaluation_page(Story, collection_info)
 
-    # write_profile_pages(pdf, collection_info, username, report_time)
-    
-    # pdf.save()    
-    doc.build(Story)
+    profile_pages(Story, collection_info)
+   
+    # Enable to show page layout borders
+    # doc.showBoundary = True 
+    doc.build(Story, onFirstPage=coverPage, onLaterPages=otherPage)
 
     return report_name
 
@@ -483,16 +577,16 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    #this_collection = get_collection_information(collguid)
+    this_collection = get_collection_information(collguid)
     
     # # write collection to local file for offline testing
     # with open("sample_collection.json", "w") as outfile:
     #     json.dump(this_collection, outfile)
     
     # Opening JSON file
-    with open('sample_collection.json', 'r') as openfile:
-        # Reading from json file
-        this_collection = json.load(openfile)
+    # with open('sample_collection.json', 'r') as openfile:
+    #     # Reading from json file
+    #     this_collection = json.load(openfile)
     
     report_name = write_report(this_collection)
 
