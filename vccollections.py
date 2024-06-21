@@ -5,8 +5,8 @@ import logging
 import datetime
 import os
 import json
-
 import anticrlf
+
 from reportlab.pdfgen import canvas
 from reportlab.lib import utils, colors
 from reportlab.lib.pagesizes import letter
@@ -48,6 +48,19 @@ styles.add(
     ParagraphStyle(name="HeaderFooterRight", parent=styles["hf"], alignment=TA_RIGHT),
     alias="hfr",
 )
+
+# ******************************* #
+# Mapping
+# ******************************* #
+severity = {
+    5: "Very High",
+    4: "High",
+    3: "Medium",
+    2: "Low",
+    1: "Very Low",
+    0: "Informational",
+}
+
 
 # ******************************* #
 # Data collection section
@@ -187,6 +200,7 @@ def cover_page(Story, user_name, report_time):
 
     tableData.append(['Executive Summary', '1'])
     tableData.append(['Asset Policy Evaluation', '2'])
+    tableData.append(['Profile Summaries', '3'])
 
     tstyle = TableStyle(
         [
@@ -353,7 +367,7 @@ def profile_summary_table(compliance_type, assets):
             Paragraph("<b>Asset</b>"),
             Paragraph("<b>Rules</b>"),
             Paragraph("<b>Scan Requirements</b>"),
-            Paragraph("<b>Last Scan Date</b>"),
+            Paragraph("<b>Last Scan Date</b>")
         ]
     )
 
@@ -365,7 +379,7 @@ def profile_summary_table(compliance_type, assets):
     for asset in assets:
         if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type or compliance_type is None:
             status_rules = asset['attributes'].get('policy_passed_rules')
-            status_scan = asset['attributes'].get('policy_passed_scan_requirements')                          
+            status_scan = asset['attributes'].get('policy_passed_scan_requirements')
             status_grace = asset['attributes'].get('policy_in_grace_period')
             scan_date = asset['attributes'].get('last_completed_scan_date')
             if status_rules:
@@ -421,7 +435,7 @@ def profile_summary_table(compliance_type, assets):
             assetName = Paragraph(asset['name'], ps)
             assetTableData.append([assetName, rulesCellTable, scanCellTable, date_text])
 
-    assetTable = Table(assetTableData, [0.3*printable_width, 0.25 * printable_width,0.25 * printable_width, 0.2 * printable_width])
+    assetTable = Table(assetTableData, [0.3*printable_width, 0.25 * printable_width, 0.25 * printable_width, 0.2 * printable_width])
 
     assetTable.setStyle(tableStyle)
     return assetTable
@@ -436,6 +450,7 @@ def profile_pages(Story, collection_info):
     for profile in findings_list:
         profile_summary_section(Story, findings_list[profile])
         profile_details_section(Story, findings_list[profile])
+        Story.append(PageBreak())
 
 
 def profile_summary_section(Story, profile):
@@ -485,10 +500,60 @@ def profile_summary_section(Story, profile):
 
 
 def profile_details_section(Story, profile):
-    profile_findings_data = []
-    sectionTitle = Paragraph('Detailed Findings', styles['h4'])
-    profile_findings_data.append(sectionTitle)
-    profile_findings_data.append(Spacer(1, .25*inch))
+    findings_by_sev = profile['findings_by_severity']
+    severity_array = []
+    for severity in findings_by_sev:
+        severity_array = severity_array + findings_by_sev[severity]
+    if len(severity_array) > 0:
+        sectionTitle = Paragraph('Detailed Findings', styles['h4'])
+        Story.append(sectionTitle)
+        Story.append(Spacer(1, .25*inch))
+        findingTable = findings_table_generation(severity_array)
+        Story.append(findingTable)
+
+
+def findings_table_generation(findings):
+    findingTableData = []
+    findingTableData.append(
+        [
+            Paragraph("<b>Scan Type</b>"),
+            Paragraph("<b>Flaw Id</b>"),
+            Paragraph("<b>Severity</b>"),
+            Paragraph("<b>CWE #</b>"),
+            Paragraph("<b>CWE Name</b>"),
+            Paragraph("<b>File Path/Name</b>"),
+            Paragraph("<b>Line #</b>")
+        ]
+    )
+    for f in findings:
+        findingTableData.append([
+            Paragraph(f['scan_type']),
+            Paragraph(str(f['issue_id'])),
+            Paragraph(str(severity[f['finding_details']['severity']])),
+            Paragraph(str(f['finding_details']['cwe']['id'])),
+            Paragraph(str(f['finding_details']['cwe']['name'])),
+            Paragraph(str(f['finding_details'].get('file_path', ''))),
+            Paragraph(str(f['finding_details'].get('file_line_number', '')))
+        ])
+    # , [0.3*printable_width, 0.25 * printable_width,0.25 * printable_width, 0.2 * printable_width]
+
+    tableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
+    findingTable = Table(
+        findingTableData,
+        [
+            0.1 * printable_width,
+            0.08 * printable_width,
+            0.12 * printable_width,
+            0.1 * printable_width,
+            0.3 * printable_width,
+            0.2 * printable_width,
+            0.1 * printable_width,
+        ],
+        None,
+        tableStyle,
+        1,
+    )
+    return findingTable
 
 
 def _header(canvas, doc, content):
@@ -547,7 +612,7 @@ def otherPage(canvas, doc):
     )
     footerTableData = []
 
-    page_number = Paragraph("Page {}".format(doc.page), styles['hfr'])
+    page_number = Paragraph("Page {}".format(doc.page - 1), styles['hfr'])
 
     footerTableData.append([copyright_footer, page_number])    
     tstyle = TableStyle(
@@ -617,11 +682,11 @@ def main():
     print(status)
     this_collection = get_collection_information(collguid)
 
-    # # write collection to local file for offline testing
+    # write collection to local file for offline testing
     # with open("sample_collection.json", "w") as outfile:
     #     json.dump(this_collection, outfile)
 
-    # Opening JSON file
+    # Opening JSON file - Use for local testing to skip api calls
     # with open('sample_collection.json', 'r') as openfile:
     #     # Reading from json file
     #     this_collection = json.load(openfile)
