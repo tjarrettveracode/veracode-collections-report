@@ -13,58 +13,45 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
-from reportlab.rl_config import defaultPageSize
 from reportlab.lib.units import inch
-
 
 
 from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
 
 log = logging.getLogger(__name__)
 
-#constants
-
-fontfamily = 'Helvetica'
-fontbold = 'Helvetica-Bold' 
-fontitalic = 'Helvetica-Oblique'
-leftmargin = 36
-titlesize = 30
-h1size = 24
-h2size = 12
-normalsize = 10
-lineheight = 1.5
-smallprint = 6
-width, height = letter
-printable_width = 0
-logo = os.path.join('resources','veracode-black-hires.jpg')
-spacer = Spacer(1,0.5*inch)
-
-PAGE_HEIGHT=defaultPageSize[1]
-PAGE_WIDTH=defaultPageSize[0]
-styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name='Normal12',
-                                  parent=styles['Normal'],
-                                  fontSize=12),
-                   alias='n12')
-styles.add(ParagraphStyle(name='Heading5Right',
-                                  parent=styles['h5'],
-                                  alignment=TA_RIGHT),
-                   alias='h5r')
-styles.add(ParagraphStyle(name='HeaderFooter',
-                                  parent=styles['Normal'],
-                                  fontSize=6,
-                                  leading=8),
-                   alias='hf')
-styles.add(ParagraphStyle(name='HeaderFooterRight',
-                                  parent=styles['hf'],
-                                  alignment=TA_RIGHT),
-                   alias='hfr')
-
+# constants
 title = 'Veracode Collection Report'
 collection_name = ''
 report_time = ''
 username = ''
 copyright_year = ''
+
+width, height = letter
+printable_width = 0
+logo = os.path.join("resources", "veracode-black-hires.jpg")
+spacer = Spacer(1, 0.5 * inch)
+
+styles = getSampleStyleSheet()
+styles.add(
+    ParagraphStyle(name="Normal12", parent=styles["Normal"], fontSize=12), alias="n12"
+)
+styles.add(
+    ParagraphStyle(name="Heading5Right", parent=styles["h5"], alignment=TA_RIGHT),
+    alias="h5r",
+)
+styles.add(
+    ParagraphStyle(name="HeaderFooter", parent=styles["Normal"], fontSize=6, leading=8),
+    alias="hf",
+)
+styles.add(
+    ParagraphStyle(name="HeaderFooterRight", parent=styles["hf"], alignment=TA_RIGHT),
+    alias="hfr",
+)
+
+# ******************************* #
+# Data collection section
+# ******************************* #
 
 
 def setup_logger():
@@ -74,12 +61,14 @@ def setup_logger():
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+
 def creds_expire_days_warning():
     creds = vapi().get_creds()
     exp = datetime.datetime.strptime(creds['expiration_ts'], "%Y-%m-%dT%H:%M:%S.%f%z")
-    delta = exp - datetime.datetime.now().astimezone() #we get a datetime with timezone...
+    delta = exp - datetime.datetime.now().astimezone()  #we get a datetime with timezone...
     if (delta.days < 7):
         print('These API credentials expire ', creds['expiration_ts'])
+
 
 def get_collection_information(collguid):
     collection_info = Collections().get(collguid)
@@ -90,40 +79,51 @@ def get_collection_information(collguid):
     findings_list = get_policy_violating_findings(applications)
     for asset in assets:
         guid = asset.get('guid')
-        if guid in findings_list and not 'asset_info' in findings_list.get(guid):
+        if guid in findings_list and 'asset_info' not in findings_list.get(guid):
             finding = findings_list.get(guid)
             finding['asset_info'] = asset
     collection_info['findings_list'] = findings_list
     return collection_info
 
+
 def get_self():
     return Users().get_self()
+
 
 def get_collection_assets(collguid):
     return Collections().get_assets(collguid)
 
+
 def get_app_profile_summary_data(app_findings):
     app_summary_info = {}
     findingsbysev = {}
-    findingsbysev['sev5'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 5)])
-    findingsbysev['sev4'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 4)])
-    findingsbysev['sev3'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 3)])
-    findingsbysev['sev2'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 2)])
-    findingsbysev['sev1'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 1)])
-    findingsbysev['sev0'] = len([finding for finding in app_findings if (finding["finding_details"]["severity"] == 0)])
-    app_summary_info['summary_info'] = findingsbysev
+    findingsbysev['sev5'] = []
+    findingsbysev['sev4'] = []
+    findingsbysev['sev3'] = []
+    findingsbysev['sev2'] = []
+    findingsbysev['sev1'] = []
+    findingsbysev['sev0'] = []
+    for finding in app_findings:
+        severity = finding["finding_details"]["severity"]
+        severityStr = str(severity)
+        if ('sev'+severityStr not in findingsbysev):
+            findingsbysev['sev'+severityStr] = []
+        findingsbysev['sev'+severityStr].append(finding)
+
+    app_summary_info['findings_by_severity'] = findingsbysev
     app_summary_info['app_findings'] = app_findings
     return app_summary_info
 
-def update_collection_findings_by_sev(collection_summary, app_findings_summary):
-    collection_summary['sev5'] = collection_summary.get('sev5', 0) + app_findings_summary['sev5']
-    collection_summary['sev4'] = collection_summary.get('sev4', 0) + app_findings_summary['sev4']
-    collection_summary['sev3'] = collection_summary.get('sev3', 0) + app_findings_summary['sev3']
-    collection_summary['sev2'] = collection_summary.get('sev2', 0) + app_findings_summary['sev2']
-    collection_summary['sev1'] = collection_summary.get('sev1', 0) + app_findings_summary['sev1']
-    collection_summary['sev0'] = collection_summary.get('sev0', 0) + app_findings_summary['sev0']
 
+def update_collection_findings_by_sev(collection_summary, app_findings_summary):
+    collection_summary['sev5'] = collection_summary.get('sev5', []) + app_findings_summary.get('sev5', [])
+    collection_summary['sev4'] = collection_summary.get('sev4', []) + app_findings_summary.get('sev4', [])
+    collection_summary['sev3'] = collection_summary.get('sev3', []) + app_findings_summary.get('sev3', [])
+    collection_summary['sev2'] = collection_summary.get('sev2', []) + app_findings_summary.get('sev2', [])
+    collection_summary['sev1'] = collection_summary.get('sev1', []) + app_findings_summary.get('sev1', [])
+    collection_summary['sev0'] = collection_summary.get('sev0', []) + app_findings_summary.get('sev0', [])
     return collection_summary
+
 
 def get_policy_violating_findings(apps):
     status = "Getting findings for {} applications…".format(len(apps))
@@ -136,11 +136,16 @@ def get_policy_violating_findings(apps):
         log.debug("Getting findings for application {}".format(app))
         this_app_findings = Findings().get_findings(app, request_params = params) # update to do by severity and policy status
         this_app_findings = get_app_profile_summary_data(this_app_findings)
-        collection_summary = update_collection_findings_by_sev(collection_summary, this_app_findings['summary_info'])
+        collection_summary = update_collection_findings_by_sev(collection_summary, this_app_findings['findings_by_severity'])
         all_findings[app] = this_app_findings
 
     all_findings['collection_summary'] = collection_summary
     return all_findings
+
+# ******************************* #
+# PDF Generation section          #
+# ******************************* #
+
 
 def get_image(path, width=1 * inch):
     img = utils.ImageReader(path)
@@ -148,52 +153,57 @@ def get_image(path, width=1 * inch):
     aspect = ih / float(iw)
     return Image(path, width=width, height=(width * aspect))
 
+
 def cover_page(Story, user_name, report_time):
-    
     im = get_image(logo, 3*inch)
     Story.append(im)
     Story.append(spacer)
-    
+
     titleStyle = styles['Title']
-    Title=Paragraph('Collection Security Report',titleStyle)
+    Title = Paragraph("Collection Security Report", titleStyle)
     Story.append(Title)
     Story.append(spacer)
-    
+
     style = styles['Normal']
-    collection_name_p=Paragraph("<b>Collection name:</b> {}".format(collection_name),style)
+    collection_name_p = Paragraph(
+        "<b>Collection name:</b> {}".format(collection_name), style
+    )
     Story.append(collection_name_p)
-    prepared_by_p=Paragraph("<b>Prepared by:</b> {}".format(user_name),style)
+    prepared_by_p = Paragraph("<b>Prepared by:</b> {}".format(user_name), style)
     Story.append(prepared_by_p)
-    date_p=Paragraph("<b>Date:</b> {}".format(report_time),style)
+    date_p = Paragraph("<b>Date:</b> {}".format(report_time), style)
     Story.append(date_p)
     Story.append(spacer)
-    
+
     tableData = []
-    
+
     styleH5 = styles['h5']
-    section = Paragraph('Sections',styleH5)
-    page = Paragraph('Page',styles['h5r'])
-    
+    section = Paragraph("Sections", styleH5)
+    page = Paragraph("Page", styles["h5r"])
+
     tableHeaders = [section, page]
-    
+
     tableData.append(tableHeaders)
-    
+
     tableData.append(['Executive Summary', '1'])
     tableData.append(['Asset Policy Evaluation', '2'])
-    
+
     tstyle = TableStyle(
-        [('LINEABOVE', (0,0), (-1,0), 2, colors.black),
-        ('LINEBELOW', (0,0), (-1,0), 2, colors.black),
-        ('LINEABOVE', (0,2), (-1,-1), 0.25, colors.black),
-        ('LINEBELOW', (0,-1), (-1,-1), 2, colors.black),
-        ('ALIGN', (1,0), (-1,-1), 'RIGHT')]
-    ) 
-    
-    t = Table(tableData,[0.9*printable_width, 0.1*printable_width])
+        [
+            ("LINEABOVE", (0, 0), (-1, 0), 2, colors.black),
+            ("LINEBELOW", (0, 0), (-1, 0), 2, colors.black),
+            ("LINEABOVE", (0, 2), (-1, -1), 0.25, colors.black),
+            ("LINEBELOW", (0, -1), (-1, -1), 2, colors.black),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ]
+    )
+
+    t = Table(tableData, [0.9 * printable_width, 0.1 * printable_width])
     t.setStyle(tstyle)
     Story.append(t)
     Story.append(PageBreak())
-    
+
+
 def summary_page(Story, collection_info):
     compliance_status = Collections().compliance_titles[collection_info.get('compliance_status').lower()]
     compliance_status_description = 'one or more assets did not pass policy'
@@ -203,8 +213,7 @@ def summary_page(Story, collection_info):
 
     compliance_overview = collection_info.get('compliance_overview')
 
-
-    sectionTitle=Paragraph('Executive Summary',styles['h1'])
+    sectionTitle = Paragraph("Executive Summary", styles["h1"])
     Story.append(sectionTitle)
     Story.append(spacer)
 
@@ -215,12 +224,10 @@ def summary_page(Story, collection_info):
     summaryTableData.append(['Status', compliance_status_paragraph])
 
     summaryTableData.append(['Collection Description', collection_description])
-    
+
     summaryTableData.append(['Assets', collection_info.get('total_assets')])
-    summaryTable = Table(summaryTableData,[0.5*printable_width, 0.5*printable_width])
-    tstyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'TOP')]
-    ) 
+    summaryTable = Table(summaryTableData, [0.5 * printable_width, 0.5 * printable_width])
+    tstyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
     summaryTable.setStyle(tstyle)
     Story.append(summaryTable)
 
@@ -235,68 +242,67 @@ def summary_page(Story, collection_info):
     complianceOverviewTableData.append([Paragraph('Passed:'), compliance_overview['passing_policy']])
     complianceOverviewTableData.append([Paragraph('Conditionally Pass:'), compliance_overview['conditionally_passing_policy']])
     complianceOverviewTableData.append([Paragraph('Not Assessed:'), compliance_overview['not_assessed']])
-    complianceOverviewTable = Table(complianceOverviewTableData,[0.3*printable_width, 0.1*printable_width])
+    complianceOverviewTable = Table(complianceOverviewTableData, [0.3 * printable_width, 0.1 * printable_width])
     complianceOverviewStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'TOP'),
-         ('ALIGN',(0,0),(-1,-1),'RIGHT')]
-    ) 
+        [("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (0, 0), (-1, -1), "RIGHT")]
+    )
     complianceOverviewTable.setStyle(complianceOverviewStyle)
     complianceOverviewTable.hAlign = 'LEFT'
-    
+
     openFindingsPolicyTable = findings_summary(findingsbysev)
 
     wrappperTableData.append([complianceOverviewTable, openFindingsPolicyTable])
-    wrapperTable = Table(wrappperTableData, [0.5*printable_width, 0.5*printable_width])
-    wrapperTableStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'TOP')]
-    ) 
+    wrapperTable = Table(wrappperTableData, [0.5 * printable_width, 0.5 * printable_width])
+    wrapperTableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
     wrapperTable.setStyle(wrapperTableStyle)
     wrapperTable.hAlign = 'LEFT'
     Story.append(wrapperTable)
-    
     Story.append(PageBreak())
+
 
 def findings_summary(findingsbysev):
     openFindingsPolicyTableData = []
     openFindingsPolicyTableData.append([Paragraph('Open Findings Impacting Policy', styles['h3']), ''])
     openFindingsPolicyTableData.append(['', ''])
-    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), findingsbysev['sev5']])
-    openFindingsPolicyTableData.append([Paragraph('High Severity:'), findingsbysev['sev4']])
-    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), findingsbysev['sev3']])
-    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), findingsbysev['sev2']])
-    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), findingsbysev['sev1']])
-    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), findingsbysev['sev0']])
-    openFindingsPolicyTable = Table(openFindingsPolicyTableData,[0.3*printable_width, 0.1*printable_width])
+    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), len(findingsbysev['sev5'])])
+    openFindingsPolicyTableData.append([Paragraph('High Severity:'), len(findingsbysev['sev4'])])
+    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), len(findingsbysev['sev3'])])
+    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), len(findingsbysev['sev2'])])
+    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), len(findingsbysev['sev1'])])
+    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), len(findingsbysev['sev0'])])
+    openFindingsPolicyTable = Table(openFindingsPolicyTableData, [0.3 * printable_width, 0.1 * printable_width])
     openFindingsPolicyStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'TOP'),
-         ('SPAN',(0,0),(1,0)),
-         ('ALIGN',(1,0),(-1,-1),'RIGHT')]
-    ) 
+        [
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("SPAN", (0, 0), (1, 0)),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ]
+    )
     openFindingsPolicyTable.setStyle(openFindingsPolicyStyle)
     openFindingsPolicyTable.hAlign = 'LEFT'
     return openFindingsPolicyTable
 
+
 def asset_policy_evaluation_page(Story, collection_info):
     assets = collection_info.get('asset_infos')
-    
-    didnotpassicon = os.path.join('resources','fail.png')
-    conditionalicon = os.path.join('resources','conditional.png')
-    passicon = os.path.join('resources','pass.png')
-    notassessicon = os.path.join('resources','notassessed.png')
+
+    didnotpassicon = os.path.join("resources", "fail.png")
+    conditionalicon = os.path.join("resources", "conditional.png")
+    passicon = os.path.join("resources", "pass.png")
+    notassessicon = os.path.join("resources", "notassessed.png")
 
     not_passed = collection_info['compliance_overview']['not_passing_policy']
     conditional = collection_info['compliance_overview']['conditionally_passing_policy']
     passed = collection_info['compliance_overview']['passing_policy']
     not_assessed = collection_info['compliance_overview']['not_assessed']
-    
-    sectionTitle=Paragraph('Asset Policy Evaluation',styles['h1'])
+
+    sectionTitle = Paragraph("Asset Policy Evaluation", styles["h1"])
     Story.append(sectionTitle)
     Story.append(spacer)
 
     if not_passed > 0:
         # section - did not pass
         didnotpasstext = 'These assets have findings that violate policy rules and exceeded the remediation grace period or they have not been scanned at the required frequency.'
-        
         asset_policy_evaluation_section(Story, 'DID_NOT_PASS', didnotpassicon, didnotpasstext, assets)
 
     if conditional > 0:
@@ -315,36 +321,46 @@ def asset_policy_evaluation_page(Story, collection_info):
         asset_policy_evaluation_section(Story, 'NOT_ASSESSED', notassessicon, notassessedtext, assets)
     Story.append(PageBreak())
 
+
 def asset_policy_evaluation_section(Story, compliance_type, icon, descriptiontext, assets):
-    
-    section_header = Paragraph(Collections().compliance_titles[compliance_type.upper()],styles['n12'])
+    section_header = Paragraph(
+        Collections().compliance_titles[compliance_type.upper()], styles["n12"]
+    )
     sectionTitleTableData = []
     im = get_image(icon, .2*inch)
     sectionTitleTableData.append([im, section_header])
     sectionTitleTable = Table(sectionTitleTableData, [0.4*inch, 3*inch])
     sectionTitleTableStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-         ('BOTTOMPADDING',(0,0),(-1,-1),10)]
-    ) 
+        [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]
+    )
     sectionTitleTable.setStyle(sectionTitleTableStyle)
     sectionTitleTable.hAlign = 'LEFT'
     Story.append(sectionTitleTable)
 
     Story.append(Paragraph(descriptiontext))
-    Story.append(Spacer(1,0.25*inch))
-    profile_summary_table(Story, compliance_type, assets)
+    Story.append(Spacer(1, 0.25*inch))
+    Story.append(profile_summary_table(compliance_type, assets))
     Story.append(spacer)
 
-def profile_summary_table(Story, compliance_type, assets):
+
+def profile_summary_table(compliance_type, assets):
     assetTableData = []
-    assetTableData.append([Paragraph('<b>Asset</b>'),Paragraph('<b>Rules</b>'),Paragraph('<b>Scan Requirements</b>'),Paragraph('<b>Last Scan Date</b>')])
-                    
-    pass_icon = get_image(os.path.join('resources', 'small','pass.png'), .1*inch)
-    conditional_icon = get_image(os.path.join('resources','small', 'conditional.png'), .1*inch)
-    fail_icon = get_image(os.path.join('resources','small','fail.png'), .1*inch)
-    tableStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'MIDDLE')]
-    ) 
+    assetTableData.append(
+        [
+            Paragraph("<b>Asset</b>"),
+            Paragraph("<b>Rules</b>"),
+            Paragraph("<b>Scan Requirements</b>"),
+            Paragraph("<b>Last Scan Date</b>"),
+        ]
+    )
+
+    pass_icon = get_image(os.path.join("resources", "small", "pass.png"), 0.1 * inch)
+    conditional_icon = get_image(os.path.join("resources", "small", "conditional.png"), 0.1 * inch)
+    fail_icon = get_image(os.path.join("resources", "small", "fail.png"), 0.1 * inch)
+    tableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
     ps = styles['Normal']
     for asset in assets:
         if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type or compliance_type is None:
@@ -367,95 +383,113 @@ def profile_summary_table(Story, compliance_type, assets):
             else:
                 scan_icon = fail_icon
                 scan_text = Paragraph('Did Not Pass', ps)
-                        
+
             if scan_date:                
                 date_unfiltered = scan_date
                 datetimeobj = datetime.datetime.strptime(date_unfiltered, '%Y-%m-%dT%H:%M:%S.%f%z')
                 date_text = Paragraph(datetime.datetime.strftime(datetimeobj, '%m-%d-%Y %H:%M'), ps) 
             else:
                 date_text = Paragraph('Not Scanned', ps)
-            
+
             rulesCellTableData = []
             rulesCellTableData.append([rules_icon, rules_text])
-            rulesCellTable = Table(rulesCellTableData, [0.03*printable_width,0.22*printable_width])
+            rulesCellTable = Table(rulesCellTableData, [0.03 * printable_width, 0.22 * printable_width])
             rulesCellTableStyle = TableStyle(
-                [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                 ('LEFTPADDING',(0,0),(-1,-1),0),
-                 ('RIGHTPADDING',(0,0),(-1,-1),0),
-                 ('TOPPADDING',(0,0),(-1,-1),0),
-                 ('BOTTOMPADDING',(0,0),(-1,-1),0)]
-            ) 
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
             rulesCellTable.setStyle(rulesCellTableStyle)
 
             scanCellTableData = []
             scanCellTableData.append([scan_icon, scan_text])
-            scanCellTable = Table(scanCellTableData, [0.03*printable_width,0.22*printable_width])
+            scanCellTable = Table(scanCellTableData, [0.03 * printable_width, 0.22 * printable_width])
             scanCellTableStyle = TableStyle(
-                [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-                 ('LEFTPADDING',(0,0),(-1,-1),0),
-                 ('RIGHTPADDING',(0,0),(-1,-1),0),
-                 ('TOPPADDING',(0,0),(-1,-1),0),
-                 ('BOTTOMPADDING',(0,0),(-1,-1),0)]
-            ) 
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
             scanCellTable.setStyle(scanCellTableStyle)
             assetName = Paragraph(asset['name'], ps)
             assetTableData.append([assetName, rulesCellTable, scanCellTable, date_text])
-    
-    
-    assetTable = Table(assetTableData, [0.3*printable_width, 0.25*printable_width,0.25*printable_width,0.2*printable_width])
+
+    assetTable = Table(assetTableData, [0.3*printable_width, 0.25 * printable_width,0.25 * printable_width, 0.2 * printable_width])
 
     assetTable.setStyle(tableStyle)
-    Story.append(assetTable)
+    return assetTable
+
 
 def profile_pages(Story, collection_info):
     findings_list = collection_info.get('findings_list')
-    assets = collection_info.get('asset_infos')
 
-    sectionTitle=Paragraph('Profile Summaries',styles['h1'])
+    sectionTitle = Paragraph('Profile Summaries', styles['h1'])
     Story.append(sectionTitle)
     Story.append(spacer)
     for profile in findings_list:
-        profile_section(Story, profile, findings_list[profile])
+        profile_summary_section(Story, findings_list[profile])
+        profile_details_section(Story, findings_list[profile])
 
-def profile_section(Story, profile_guid, profile):
-    pass_icon = os.path.join('resources','pass.png')
+
+def profile_summary_section(Story, profile):
+    summary_data = []
+    pass_icon = os.path.join('resources', 'pass.png')
     conditional_icon = os.path.join('resources', 'conditional.png')
-    fail_icon = os.path.join('resources','fail.png')
-    not_assess_icon = os.path.join('resources','notassessed.png')
-    
+    fail_icon = os.path.join('resources', 'fail.png')
+    not_assess_icon = os.path.join('resources', 'notassessed.png')
     asset_info = profile['asset_info']
     asset_attributes = asset_info['attributes']
     display_icon = not_assess_icon
-    if(asset_attributes['policy_passed_scan_requirements']):
-        if(asset_attributes['policy_passed_rules']):
+    if (asset_attributes['policy_passed_scan_requirements']):
+        if (asset_attributes['policy_passed_rules']):
             display_icon = pass_icon
-        elif(asset_attributes['policy_in_grace_period']):
+        elif (asset_attributes['policy_in_grace_period']):
             display_icon = conditional_icon
         else:
-            display_icon = fail_icon    
+            display_icon = fail_icon
     else:
         display_icon = fail_icon
     icon = get_image(display_icon, .2*inch)
-    profileName=Paragraph(profile['asset_info']['name'],styles['h3'])
+    profileName = Paragraph(profile['asset_info']['name'], styles['h3'])
     titleCellTableData = []
     titleCellTableData.append([icon, profileName])
-    titleCellTable = Table(titleCellTableData, [0.05*printable_width,0.9*printable_width])
+    titleCellTable = Table(titleCellTableData, [0.05 * printable_width, 0.9 * printable_width])
     titleCellTableStyle = TableStyle(
-        [('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-            ('LEFTPADDING',(0,0),(-1,-1),0),
-            ('RIGHTPADDING',(0,0),(-1,-1),0),
-            ('TOPPADDING',(0,0),(-1,-1),0),
-            ('BOTTOMPADDING',(0,0),(-1,-1),0)]
-    ) 
+        [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]
+    )
     titleCellTable.setStyle(titleCellTableStyle)
     titleCellTable.hAlign = 'LEFT'
-    Story.append(titleCellTable)
+
+    summary_data.append(titleCellTable)
+    summary_data.append(Spacer(1, .25*inch))
+    summary_table = profile_summary_table(None, [asset_info])
+    summary_data.append(summary_table)
+    summary_data.append(Spacer(1, .25*inch))
+    findings_summary_table = findings_summary(profile['findings_by_severity'])
+    summary_data.append(findings_summary_table)
+    Story.append(KeepTogether(summary_data))
     Story.append(Spacer(1, .25*inch))
-    
-    profile_summary_table(Story, None, [asset_info])
-    Story.append(Spacer(1, .25*inch))
-    Story.append(findings_summary(profile['summary_info']))
-    Story.append(Spacer(1, .25*inch))
+
+
+def profile_details_section(Story, profile):
+    profile_findings_data = []
+    sectionTitle = Paragraph('Detailed Findings', styles['h4'])
+    profile_findings_data.append(sectionTitle)
+    profile_findings_data.append(Spacer(1, .25*inch))
+
 
 def _header(canvas, doc, content):
     # Header
@@ -463,11 +497,13 @@ def _header(canvas, doc, content):
     w, h = header.wrap(doc.width, doc.topMargin)
     header.drawOn(canvas, doc.leftMargin, doc.height + doc.topMargin + h)
 
+
 def _footer(canvas, doc, content):
     # Footer
     footer = content
     w, h = footer.wrap(doc.width, doc.bottomMargin)
     footer.drawOn(canvas, doc.leftMargin, h+40)
+
 
 def coverPage(canvas, doc):
     # Save the state of our canvas so we can draw on it
@@ -478,49 +514,52 @@ def coverPage(canvas, doc):
 
     footerTableData.append([copyright_footer])    
     tstyle = TableStyle(
-        [('ALIGN', (1,0), (-1,-1), 'LEFT')]
+        [('ALIGN', (1, 0), (-1, -1), 'LEFT')]
     ) 
-    
-    ft = Table(footerTableData,[doc.width])
+
+    ft = Table(footerTableData, [doc.width])
     ft.setStyle(tstyle)
     _footer(canvas, doc, ft)
-    
+
     # Release the canvas
     canvas.restoreState()
+
 
 def otherPage(canvas, doc):
     # Save the state of our canvas so we can draw on it
     canvas.saveState()
     headerTableData = []
-    
+
     collection = Paragraph("Collection: {}".format(collection_name), styles['hf'])
     im = get_image(logo, .75*inch)
     headerTableData.append([collection, im])    
-    tstyle = TableStyle(
-        [('ALIGN', (1,0), (-1,-1), 'RIGHT')]
-    ) 
-    
-    ht = Table(headerTableData,[0.5*doc.width, 0.5*doc.width])
+    tstyle = TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")])
+
+    ht = Table(headerTableData, [0.5 * doc.width, 0.5 * doc.width])
     ht.setStyle(tstyle)
     _header(canvas, doc, ht)
 
-    copyright_footer = Paragraph("Copyright {} Veracode Inc.    Prepared {}     {} and Veracode Confidential".format(copyright_year,username,report_time), styles['hf'])
+    copyright_footer = Paragraph(
+        "Copyright {} Veracode Inc.    Prepared {}     {} and Veracode Confidential".format(
+            copyright_year, username, report_time
+        ),
+        styles["hf"],
+    )
     footerTableData = []
-    
+
     page_number = Paragraph("Page {}".format(doc.page), styles['hfr'])
 
     footerTableData.append([copyright_footer, page_number])    
     tstyle = TableStyle(
-        [('ALIGN', (1,0), (-1,-1), 'RIGHT')]
-    ) 
-    
-    ft = Table(footerTableData,[0.8*doc.width, 0.2*doc.width])
+        [('ALIGN', (1, 0), (-1, -1), 'RIGHT')]
+    )
+
+    ft = Table(footerTableData, [0.8*doc.width, 0.2*doc.width])
     ft.setStyle(tstyle)
     _footer(canvas, doc, ft)
-    
+
     # Release the canvas
     canvas.restoreState()
-
 
 
 def write_report(collection_info):
@@ -536,16 +575,14 @@ def write_report(collection_info):
     global copyright_year 
     copyright_year = today.strftime("%Y")
     report_name = "Veracode Collection - {}.pdf".format(collection_name)
-    # pdf = canvas.Canvas("Veracode Collection - {}.pdf".format(collection_name),pagesize=letter)
-    
+
     doc = SimpleDocTemplate(report_name,
                             rightMargin=.5*inch,
                             leftMargin=.5*inch,
                             topMargin=72,
                             bottomMargin=72,)
     global printable_width
-    # printable_width = doc.width - doc.rightMargin - doc.leftMargin
-    printable_width = doc.width *0.95
+    printable_width = doc.width * 0.95
     Story = [spacer]
 
     cover_page(Story, username, report_time)
@@ -555,12 +592,13 @@ def write_report(collection_info):
     asset_policy_evaluation_page(Story, collection_info)
 
     profile_pages(Story, collection_info)
-   
+
     # Enable to show page layout borders
     # doc.showBoundary = True 
     doc.build(Story, onFirstPage=coverPage, onLaterPages=otherPage)
 
     return report_name
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -578,21 +616,22 @@ def main():
     log.info(status)
     print(status)
     this_collection = get_collection_information(collguid)
-    
+
     # # write collection to local file for offline testing
     # with open("sample_collection.json", "w") as outfile:
     #     json.dump(this_collection, outfile)
-    
+
     # Opening JSON file
     # with open('sample_collection.json', 'r') as openfile:
     #     # Reading from json file
     #     this_collection = json.load(openfile)
-    
+
     report_name = write_report(this_collection)
 
     status = "Created report at {}".format(report_name)
     print(status)
     log.info(status)
-    
+
+
 if __name__ == '__main__':
     main()
