@@ -107,6 +107,10 @@ def get_collection_assets(collguid):
     return Collections().get_assets(collguid)
 
 
+def get_finding_severity(finding):
+    return finding['finding_details']['severity']
+
+
 def get_app_profile_summary_data(app_findings):
     app_summary_info = {}
     findingsbysev = {}
@@ -116,6 +120,7 @@ def get_app_profile_summary_data(app_findings):
     findingsbysev['sev2'] = []
     findingsbysev['sev1'] = []
     findingsbysev['sev0'] = []
+    app_findings.sort(key=get_finding_severity, reverse=True)
     for finding in app_findings:
         severity = finding["finding_details"]["severity"]
         severityStr = str(severity)
@@ -123,18 +128,21 @@ def get_app_profile_summary_data(app_findings):
             findingsbysev['sev'+severityStr] = []
         findingsbysev['sev'+severityStr].append(finding)
 
+    for findingSev in findingsbysev:
+        findingsbysev[findingSev] = len(findingsbysev[findingSev])
+
     app_summary_info['findings_by_severity'] = findingsbysev
     app_summary_info['app_findings'] = app_findings
     return app_summary_info
 
 
 def update_collection_findings_by_sev(collection_summary, app_findings_summary):
-    collection_summary['sev5'] = collection_summary.get('sev5', []) + app_findings_summary.get('sev5', [])
-    collection_summary['sev4'] = collection_summary.get('sev4', []) + app_findings_summary.get('sev4', [])
-    collection_summary['sev3'] = collection_summary.get('sev3', []) + app_findings_summary.get('sev3', [])
-    collection_summary['sev2'] = collection_summary.get('sev2', []) + app_findings_summary.get('sev2', [])
-    collection_summary['sev1'] = collection_summary.get('sev1', []) + app_findings_summary.get('sev1', [])
-    collection_summary['sev0'] = collection_summary.get('sev0', []) + app_findings_summary.get('sev0', [])
+    collection_summary['sev5'] = collection_summary.get('sev5', 0) + app_findings_summary['sev5']
+    collection_summary['sev4'] = collection_summary.get('sev4', 0) + app_findings_summary['sev4']
+    collection_summary['sev3'] = collection_summary.get('sev3', 0) + app_findings_summary['sev3']
+    collection_summary['sev2'] = collection_summary.get('sev2', 0) + app_findings_summary['sev2']
+    collection_summary['sev1'] = collection_summary.get('sev1', 0) + app_findings_summary['sev1']
+    collection_summary['sev0'] = collection_summary.get('sev0', 0) + app_findings_summary['sev0']
     return collection_summary
 
 
@@ -278,12 +286,12 @@ def findings_summary(findingsbysev):
     openFindingsPolicyTableData = []
     openFindingsPolicyTableData.append([Paragraph('Open Findings Impacting Policy', styles['h3']), ''])
     openFindingsPolicyTableData.append(['', ''])
-    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), len(findingsbysev['sev5'])])
-    openFindingsPolicyTableData.append([Paragraph('High Severity:'), len(findingsbysev['sev4'])])
-    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), len(findingsbysev['sev3'])])
-    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), len(findingsbysev['sev2'])])
-    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), len(findingsbysev['sev1'])])
-    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), len(findingsbysev['sev0'])])
+    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), findingsbysev['sev5']])
+    openFindingsPolicyTableData.append([Paragraph('High Severity:'), findingsbysev['sev4']])
+    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), findingsbysev['sev3']])
+    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), findingsbysev['sev2']])
+    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), findingsbysev['sev1']])
+    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), findingsbysev['sev0']])
     openFindingsPolicyTable = Table(openFindingsPolicyTableData, [0.3 * printable_width, 0.1 * printable_width])
     openFindingsPolicyStyle = TableStyle(
         [
@@ -500,15 +508,12 @@ def profile_summary_section(Story, profile):
 
 
 def profile_details_section(Story, profile):
-    findings_by_sev = profile['findings_by_severity']
-    severity_array = []
-    for severity in findings_by_sev:
-        severity_array = severity_array + findings_by_sev[severity]
-    if len(severity_array) > 0:
+    findings = profile['app_findings']
+    if len(findings) > 0:
         sectionTitle = Paragraph('Detailed Findings', styles['h4'])
         Story.append(sectionTitle)
         Story.append(Spacer(1, .25*inch))
-        findingTable = findings_table_generation(severity_array)
+        findingTable = findings_table_generation(findings)
         Story.append(findingTable)
 
 
