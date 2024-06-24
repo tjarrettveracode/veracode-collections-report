@@ -632,9 +632,8 @@ def otherPage(canvas, doc):
     canvas.restoreState()
 
 
-def write_report(collection_info):
+def write_report(collection_info, report_name):
     # cover page fields
-    report_name = "Veracode Collection - {}.pdf".format(collection_name)
 
     doc = SimpleDocTemplate(report_name,
                             rightMargin=.5*inch,
@@ -656,8 +655,6 @@ def write_report(collection_info):
     # Enable to show page layout borders
     # doc.showBoundary = True 
     doc.build(Story, onFirstPage=coverPage, onLaterPages=otherPage)
-
-    return report_name
 
 
 def main():
@@ -689,15 +686,21 @@ def main():
     global report_time
     today = datetime.datetime.now()
     report_time = today.strftime("%d/%m/%Y %H:%M:%S")
+    filename_time = today.strftime("%Y-%m-%d %H-%M-%S")
     global copyright_year
     copyright_year = today.strftime("%Y")
 
-    outputFilename = "Veracode Collection - {}".format(collection_name)
-
+    outputFilename = "Veracode Collection - {} - {}".format(collection_name, filename_time)
+    print(outputFilename)
+    log.info(outputFilename)
     # write collection to local file for offline testing
     if 'json' in format:
-        with open(outputFilename+".json", "w") as outfile:
+        jsonFilename = outputFilename+".json"
+        with open(jsonFilename, "w") as outfile:
             json.dump(collection_info, outfile)
+        jsonLog = "Wrote JSON file: {}".format(jsonFilename)
+        print(jsonLog)
+        log.info(jsonLog)
 
     # Opening JSON file - Use for local testing to skip api calls
     # with open('sample_collection.json', 'r') as openfile:
@@ -705,9 +708,20 @@ def main():
     #     this_collection = json.load(openfile)
 
     if 'pdf' in format:
-        report_name = write_report(collection_info)
+        pdfFilename = outputFilename+".pdf"
+        write_report(collection_info, pdfFilename)
+        jsonLog = "Wrote PDF file: {}".format(pdfFilename)
+        print(jsonLog)
+        log.info(jsonLog)
 
-    status = "Created report at {}".format(report_name)
+    if 'csv' in format:
+        csvFilename = outputFilename+".csv"
+        # report_name = write_report(collection_info)
+        jsonLog = "Wrote CSV file: {}".format(csvFilename)
+        print(jsonLog)
+        log.info(jsonLog)
+
+    status = "Reports generated for {}".format(outputFilename)
     print(status)
     log.info(status)
 
