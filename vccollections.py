@@ -6,6 +6,7 @@ import datetime
 import os
 import json
 import anticrlf
+import csv
 
 from reportlab.pdfgen import canvas
 from reportlab.lib import utils, colors
@@ -231,7 +232,7 @@ def summary_page(Story, collection_info):
     compliance_status_description = 'one or more assets did not pass policy'
     collection_description = collection_info.get('description')
     findings_list = collection_info.get('findings_list')
-    findingsbysev = findings_list.pop('collection_summary')
+    findingsbysev = findings_list['collection_summary']
 
     compliance_overview = collection_info.get('compliance_overview')
 
@@ -456,9 +457,10 @@ def profile_pages(Story, collection_info):
     Story.append(sectionTitle)
     Story.append(spacer)
     for profile in findings_list:
-        profile_summary_section(Story, findings_list[profile])
-        profile_details_section(Story, findings_list[profile])
-        Story.append(PageBreak())
+        if profile != 'collection_summary':
+            profile_summary_section(Story, findings_list[profile])
+            profile_details_section(Story, findings_list[profile])
+            Story.append(PageBreak())
 
 
 def profile_summary_section(Story, profile):
@@ -632,7 +634,7 @@ def otherPage(canvas, doc):
     canvas.restoreState()
 
 
-def write_report(collection_info, report_name):
+def write_pdf_report(collection_info, report_name):
     # cover page fields
 
     doc = SimpleDocTemplate(report_name,
@@ -656,6 +658,43 @@ def write_report(collection_info, report_name):
     # doc.showBoundary = True 
     doc.build(Story, onFirstPage=coverPage, onLaterPages=otherPage)
 
+# ******************************* #
+# CSV Generation section          #
+# ******************************* #
+
+
+def write_csv_report(collection_info, csvFilename):
+
+    # writing to csv file
+    with open(csvFilename, 'w') as csvfile:
+        # creating a csv writer object
+        csvwriter = csv.writer(csvfile)
+
+        header_fields = ['Profile Name', 'Flaw Id', 'Scan Type', 'Severity', 'CWE Id', 'CWE Name', 'File Path/Name', 'Line Number']
+        # writing the fields
+        csvwriter.writerow(header_fields)
+        # writing the data rows
+        findings_list = collection_info['findings_list']
+        data_rows = []
+
+        for profile in findings_list:
+            if profile != 'collection_summary':
+                profileData = findings_list[profile]
+                app_findings = profileData['app_findings']
+                for ap in app_findings:
+                    data_row = [
+                        profileData["asset_info"]["name"],
+                        str(ap["issue_id"]),
+                        ap["scan_type"],
+                        severity[ap["finding_details"]["severity"]],
+                        str(ap["finding_details"]["cwe"]["id"]),
+                        ap["finding_details"]["cwe"]["name"],
+                        ap["finding_details"].get("file_path", ""),
+                        str(ap["finding_details"].get("file_line_number", "")),
+                    ]
+                    data_rows.append(data_row)
+        csvwriter.writerows(data_rows)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -678,6 +717,11 @@ def main():
     print(status)
     collection_info = get_collection_information(collguid)
 
+    # Opening JSON file - Use for local testing to skip api calls
+    # with open('sample_collection.json', 'r') as openfile:
+    #     # Reading from json file
+    #     collection_info = json.load(openfile)
+
     global collection_name
     collection_name = collection_info.get('name')
     thisuser = get_self()
@@ -693,6 +737,7 @@ def main():
     outputFilename = "Veracode Collection - {} - {}".format(collection_name, filename_time)
     print(outputFilename)
     log.info(outputFilename)
+
     # write collection to local file for offline testing
     if 'json' in format:
         jsonFilename = outputFilename+".json"
@@ -702,21 +747,16 @@ def main():
         print(jsonLog)
         log.info(jsonLog)
 
-    # Opening JSON file - Use for local testing to skip api calls
-    # with open('sample_collection.json', 'r') as openfile:
-    #     # Reading from json file
-    #     this_collection = json.load(openfile)
-
     if 'pdf' in format:
         pdfFilename = outputFilename+".pdf"
-        write_report(collection_info, pdfFilename)
+        write_pdf_report(collection_info, pdfFilename)
         jsonLog = "Wrote PDF file: {}".format(pdfFilename)
         print(jsonLog)
         log.info(jsonLog)
 
     if 'csv' in format:
         csvFilename = outputFilename+".csv"
-        # report_name = write_report(collection_info)
+        write_csv_report(collection_info, csvFilename)
         jsonLog = "Wrote CSV file: {}".format(csvFilename)
         print(jsonLog)
         log.info(jsonLog)
