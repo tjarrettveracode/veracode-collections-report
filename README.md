@@ -36,5 +36,6 @@ Otherwise you will need to set environment variables:
 Arguments supported include:
 
 * --collectionsid, -c  (required): Collections guid for which to create a report.
+* --format, -f  (optional): Comma separate list of desired output formats. pdf (default), csv, json.
 
-The Collections Report produces two outputs: a PDF and a CSV file.
+The Collections Report produces two outputs: a PDF, a CSV and/or JSON file.

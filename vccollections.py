@@ -634,16 +634,6 @@ def otherPage(canvas, doc):
 
 def write_report(collection_info):
     # cover page fields
-    global collection_name 
-    collection_name = collection_info.get('name')
-    thisuser = get_self()
-    global username
-    username = thisuser.get('first_name') + ' ' + thisuser.get('last_name')
-    global report_time
-    today = datetime.datetime.now()
-    report_time = today.strftime("%d/%m/%Y %H:%M:%S")
-    global copyright_year 
-    copyright_year = today.strftime("%Y")
     report_name = "Veracode Collection - {}.pdf".format(collection_name)
 
     doc = SimpleDocTemplate(report_name,
@@ -674,9 +664,13 @@ def main():
     parser = argparse.ArgumentParser(
         description='This script lists modules in which static findings were identified.')
     parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', required=True)
+    parser.add_argument('-f', '--format', help='Comma separate list of desired output formats. pdf (default), csv, json', required=False)
     args = parser.parse_args()
-
     collguid = args.collectionsid
+
+    format = ['pdf']
+    if args.format:
+        format = args.format.split(",")
     setup_logger()
 
     # CHECK FOR CREDENTIALS EXPIRATION
@@ -685,18 +679,33 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    this_collection = get_collection_information(collguid)
+    collection_info = get_collection_information(collguid)
+
+    global collection_name
+    collection_name = collection_info.get('name')
+    thisuser = get_self()
+    global username
+    username = thisuser.get('first_name') + ' ' + thisuser.get('last_name')
+    global report_time
+    today = datetime.datetime.now()
+    report_time = today.strftime("%d/%m/%Y %H:%M:%S")
+    global copyright_year
+    copyright_year = today.strftime("%Y")
+
+    outputFilename = "Veracode Collection - {}".format(collection_name)
 
     # write collection to local file for offline testing
-    # with open("sample_collection.json", "w") as outfile:
-    #     json.dump(this_collection, outfile)
+    if 'json' in format:
+        with open(outputFilename+".json", "w") as outfile:
+            json.dump(collection_info, outfile)
 
     # Opening JSON file - Use for local testing to skip api calls
     # with open('sample_collection.json', 'r') as openfile:
     #     # Reading from json file
     #     this_collection = json.load(openfile)
 
-    report_name = write_report(this_collection)
+    if 'pdf' in format:
+        report_name = write_report(collection_info)
 
     status = "Created report at {}".format(report_name)
     print(status)
