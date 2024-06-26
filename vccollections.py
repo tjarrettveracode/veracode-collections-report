@@ -62,6 +62,14 @@ severity = {
     0: "Informational",
 }
 
+scan_type_names = {
+    "STATIC": "Static",
+    "DYNAMIC": "Dynamic",
+    "SCA": "Software Composition Analysis",
+    "MANUAL": "Manual Penetration Testing",
+}
+
+
 
 # ******************************* #
 # Data collection section
@@ -84,13 +92,13 @@ def creds_expire_days_warning():
         print('These API credentials expire ', creds['expiration_ts'])
 
 
-def get_collection_information(collguid):
+def get_collection_information(collguid, scan_types):
     collection_info = Collections().get(collguid)
     # assets = collection_info.get('asset_infos')
     assets = Collections().get_assets(collection_info.get('guid'))
     collection_info['asset_infos'] = assets
     applications = [asset['guid'] for asset in assets]
-    findings_list = get_policy_violating_findings(applications)
+    findings_list = get_policy_violating_findings(applications, scan_types)
     for asset in assets:
         guid = asset.get('guid')
         if guid in findings_list and 'asset_info' not in findings_list.get(guid):
@@ -125,8 +133,6 @@ def get_app_profile_summary_data(app_findings):
     for finding in app_findings:
         severity = finding["finding_details"]["severity"]
         severityStr = str(severity)
-        if ('sev'+severityStr not in findingsbysev):
-            findingsbysev['sev'+severityStr] = []
         findingsbysev['sev'+severityStr].append(finding)
 
     for findingSev in findingsbysev:
@@ -147,16 +153,27 @@ def update_collection_findings_by_sev(collection_summary, app_findings_summary):
     return collection_summary
 
 
-def get_policy_violating_findings(apps):
+def get_policy_violating_findings(apps, scan_types_requested):
     status = "Getting findings for {} applications…".format(len(apps))
     print(status)
     log.info(status)
     collection_summary = {}
     all_findings = {}
-    params = {"violates_policy": True}
+    scan_types_to_get = []
+    sca = False
+    if ('SCA' in scan_types_requested):
+        sca = True
+        scan_types_requested.remove("SCA")
+
     for app in apps:
+        this_app_SCA_findings = []
         log.debug("Getting findings for application {}".format(app))
-        this_app_findings = Findings().get_findings(app, request_params = params) # update to do by severity and policy status
+        this_app_findings = Findings().get_findings(app, scan_types_to_get, True)  # update to do by severity and policy status
+        # SCA findings call must be made by itself currently. See official docs: https://docs.veracode.com/r/c_findings_v2_intro
+        if sca:
+            this_app_SCA_findings = Findings().get_findings(app, 'SCA', True)  # update to do by severity and policy status
+        if len(this_app_SCA_findings) > 0:
+            this_app_findings = this_app_findings + this_app_SCA_findings
         this_app_findings = get_app_profile_summary_data(this_app_findings)
         collection_summary = update_collection_findings_by_sev(collection_summary, this_app_findings['findings_by_severity'])
         all_findings[app] = this_app_findings
@@ -472,7 +489,9 @@ def profile_summary_section(Story, profile):
     asset_info = profile['asset_info']
     asset_attributes = asset_info['attributes']
     display_icon = not_assess_icon
-    if (asset_attributes['policy_passed_scan_requirements']):
+    if (asset_attributes['last_completed_scan_date'] is None):
+        display_icon = not_assess_icon
+    elif (asset_attributes['policy_passed_scan_requirements']):
         if (asset_attributes['policy_passed_rules']):
             display_icon = pass_icon
         elif (asset_attributes['policy_in_grace_period']):
@@ -483,9 +502,11 @@ def profile_summary_section(Story, profile):
         display_icon = fail_icon
     icon = get_image(display_icon, .2*inch)
     profileName = Paragraph(profile['asset_info']['name'], styles['h3'])
+    policyName = asset_attributes['policies'][0]['name']
+    policy = Paragraph('<b>Policy:</b> {}'.format(policyName), styles['Normal'])
     titleCellTableData = []
-    titleCellTableData.append([icon, profileName])
-    titleCellTable = Table(titleCellTableData, [0.05 * printable_width, 0.9 * printable_width])
+    titleCellTableData.append([icon, profileName, policy])
+    titleCellTable = Table(titleCellTableData, [0.05 * printable_width, 0.4 * printable_width, 0.5 * printable_width])
     titleCellTableStyle = TableStyle(
         [
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -493,6 +514,7 @@ def profile_summary_section(Story, profile):
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
         ]
     )
     titleCellTable.setStyle(titleCellTableStyle)
@@ -512,53 +534,255 @@ def profile_summary_section(Story, profile):
 def profile_details_section(Story, profile):
     findings = profile['app_findings']
     if len(findings) > 0:
-        sectionTitle = Paragraph('Detailed Findings', styles['h4'])
+        sectionTitle = Paragraph('Detailed Findings', styles['h3'])
         Story.append(sectionTitle)
         Story.append(Spacer(1, .25*inch))
-        findingTable = findings_table_generation(findings)
-        Story.append(findingTable)
+        findingsTableArray = {}
+        for f in findings:
+            scan_type = f['scan_type']
+            data_row = []
+            if (findingsTableArray.get(scan_type) is None):
+                findingsTableArray[scan_type] = []
+            match scan_type:
+                case "STATIC":
+                    data_row = static_findings_data_row(f)
+                case 'DYNAMIC':
+                    data_row = dyanmic_findings_data_row(f)
+                case 'SCA':
+                    data_row = sca_findings_data_row(f)
+                case 'MANUAL':
+                    data_row = manual_findings_data_row(f)
+            if len(data_row) > 0:
+                findingsTableArray[scan_type].append(data_row)
+        for scan_type in findingsTableArray:
+            if (len(findingsTableArray[scan_type]) > 1):
+                findingTable = findings_table_generation(findingsTableArray[scan_type], scan_type)
+                Story.append(findingTable)
+                Story.append(Spacer(1, .25*inch))
+        Story.append(Spacer(1, .25*inch))
 
 
-def findings_table_generation(findings):
-    findingTableData = []
-    findingTableData.append(
+def wrap_row_data(rowData, bold):
+    lead_text = ''
+    trail_text = ''
+    if bold:
+        lead_text = '<b>'
+        trail_text = '</b>'
+    new_row_data = []
+    for item in rowData:
+        if isinstance(item, int) or isinstance(item, float):
+            item = str(item)
+        new_row_data.append(Paragraph(lead_text+item+trail_text))
+    return new_row_data
+
+
+def static_findings_table_headers():
+    staticTableHeaders = [
+                "Flaw Id",
+                "Severity",
+                "CWE #",
+                "CWE Name",
+                "File Path/Name",
+                "Line #",
+                "Status",
+                "Resolution"
+            ]
+    return [wrap_row_data(staticTableHeaders, True)]
+
+
+def dynamic_findings_table_headers():
+    dynamicTableHeaders = [
+                "Flaw Id",
+                "Severity",
+                "CWE #",
+                "CWE Name",
+                "Path",
+                "Vulnerable Parameter",
+                "Status",
+                "Resolution"
+            ]
+    return [wrap_row_data(dynamicTableHeaders, True)]
+
+
+def sca_findings_table_headers():
+    scaTableHeaders = [
+                "CWE #",
+                "CWE Name",
+                "CVE #",
+                "CVSS",
+                "Severity",
+                "Component Name",
+                "Version",
+                "Status",
+                "Resolution"
+            ]
+    return [wrap_row_data(scaTableHeaders, True)]
+
+
+def manual_findings_table_headers():
+    manualTableHeaders = [
+                "Flaw Id",
+                "Severity",
+                "CWE #",
+                "CWE Name",
+                "Input Vector",
+                "Description",
+                "Status",
+                "Resolution"
+            ]
+    return [wrap_row_data(manualTableHeaders, True)]
+
+
+def static_findings_data_row(f):
+    data_row = [
+        f.get('issue_id', ''),
+        severity[f['finding_details']['severity']],
+        f['finding_details']['cwe']['id'],
+        f['finding_details']['cwe']['name'],
+        f['finding_details'].get('file_path', ''),
+        f['finding_details'].get('file_line_number', ''),
+        f['finding_status']['status'].capitalize(),
+        f['finding_status']['resolution'].capitalize()
+    ]
+    return wrap_row_data(data_row, False)
+
+
+def dyanmic_findings_data_row(f):
+    data_row = [
+        f.get('issue_id', ''),
+        severity[f['finding_details']['severity']],
+        f['finding_details']['cwe']['id'],
+        f['finding_details']['cwe']['name'],
+        f['finding_details'].get('path', ''),
+        f['finding_details'].get('vulnerable_parameter', ''),
+        f['finding_status']['status'].capitalize(),
+        f['finding_status']['resolution'].capitalize()
+    ]
+    return wrap_row_data(data_row, False)
+
+
+def sca_findings_data_row(f):
+    data_row = [
+        f['finding_details'].get('cwe', {}).get('id', ''),
+        f['finding_details'].get('cwe', {}).get('name', ''),
+        f['finding_details']['cve']['name'],
+        f['finding_details']['cve']['cvss'],
+        severity[f['finding_details']['severity']],
+        f['finding_details'].get('component_filename', ''),
+        f['finding_details'].get('version', ''),
+        f['finding_status']['status'].capitalize(),
+        f['finding_status']['resolution'].capitalize()
+    ]
+    return wrap_row_data(data_row, False)
+
+
+def manual_findings_data_row(f):
+    data_row = [
+        f.get('issue_id', ''),
+        severity[f['finding_details']['severity']],
+        f['finding_details']['cwe']['id'],
+        f['finding_details']['cwe']['name'],
+        f['finding_details'].get('input_vector', ''),
+        f['description'],
+        f['finding_status']['status'].capitalize(),
+        f['finding_status']['resolution'].capitalize()
+    ]
+    return wrap_row_data(data_row, False)
+
+
+def get_column_widths_for_scan_type(scan_type):
+    pw = printable_width
+    match scan_type:
+        case "STATIC":
+            return [
+                0.08 * pw,  # Flaw ID
+                0.12 * pw,  # Severity
+                0.08 * pw,  # CWE #
+                0.25 * pw,  # CWE Name
+                0.15 * pw,  # File Path
+                0.08 * pw,  # Line #
+                0.1 * pw,  # Status
+                0.14 * pw,  # Resolution
+            ]
+        case "DYNAMIC":
+            return [
+                0.08 * pw,  # Flaw ID
+                0.12 * pw,  # Severity
+                0.08 * pw,  # CWE #
+                0.25 * pw,  # CWE Name
+                0.11 * pw,  # Path
+                0.1 * pw,  # Vulnerable Parameter
+                0.1 * pw,  # Status
+                0.14 * pw,  # Resolution
+            ]
+        case "SCA":
+            return [
+                0.08 * pw,  # CWE #
+                0.15 * pw,  # CWE Name
+                0.1 * pw,  # CVE #
+                0.08 * pw,  # CVSS Score
+                0.12 * pw,  # Severity
+                0.13 * pw,  # Component Name
+                0.1 * pw,  # Version
+                0.1 * pw,  # Status
+                0.14 * pw,  # Resolution
+            ]
+        case "MANUAL":
+            return [
+                0.08 * pw,  # Flaw ID
+                0.12 * pw,  # Severity
+                0.08 * pw,  # CWE #
+                0.11 * pw,  # CWE Name
+                0.1 * pw,  # Input Vector
+                0.27 * pw,  # Description
+                0.1 * pw,  # Status
+                0.15 * pw,  # Resolution
+            ]
+        case _:
+            return [
+                0.08 * pw,  # Flaw ID
+                0.12 * pw,  # Severity
+                0.05 * pw,  # CWE #
+                0.3 * pw,  # CWE Name
+                0.2 * pw,  # File Path
+                0.1 * pw,  # Line #
+                0.1 * pw,  # Status
+                0.14 * pw,  # Resolution
+            ]
+
+
+def get_table_header_for_scan_type(scan_type):
+    match scan_type:
+        case "STATIC":
+            return static_findings_table_headers()
+        case "DYNAMIC":
+            return dynamic_findings_table_headers()
+        case "SCA":
+            return sca_findings_table_headers()
+        case "MANUAL":
+            return manual_findings_table_headers()
+        case _: return []
+
+
+def findings_table_generation(findingTableData, scan_type):
+    tableTitle = Paragraph('Detailed ' + scan_type_names[scan_type] + ' Findings', styles['h4'])
+    tableHeaders = get_table_header_for_scan_type(scan_type)
+    column_widths = get_column_widths_for_scan_type(scan_type)
+    scan_findings_table_array = [[tableTitle]] + tableHeaders + findingTableData
+    tableStyle = TableStyle(
         [
-            Paragraph("<b>Scan Type</b>"),
-            Paragraph("<b>Flaw Id</b>"),
-            Paragraph("<b>Severity</b>"),
-            Paragraph("<b>CWE #</b>"),
-            Paragraph("<b>CWE Name</b>"),
-            Paragraph("<b>File Path/Name</b>"),
-            Paragraph("<b>Line #</b>")
+            ("SPAN", (0, 0), (-1, 0)),
+            ("ALIGNMENT", (0, 0), (-1, 0), "CENTER"),
+            ("BOX", (0, 0), (-1, 0), 1, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]
-    )
-    for f in findings:
-        findingTableData.append([
-            Paragraph(f['scan_type']),
-            Paragraph(str(f['issue_id'])),
-            Paragraph(str(severity[f['finding_details']['severity']])),
-            Paragraph(str(f['finding_details']['cwe']['id'])),
-            Paragraph(str(f['finding_details']['cwe']['name'])),
-            Paragraph(str(f['finding_details'].get('file_path', ''))),
-            Paragraph(str(f['finding_details'].get('file_line_number', '')))
-        ])
-    # , [0.3*printable_width, 0.25 * printable_width,0.25 * printable_width, 0.2 * printable_width]
-
-    tableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
+    )    
     findingTable = Table(
-        findingTableData,
-        [
-            0.1 * printable_width,
-            0.08 * printable_width,
-            0.12 * printable_width,
-            0.1 * printable_width,
-            0.3 * printable_width,
-            0.2 * printable_width,
-            0.1 * printable_width,
-        ],
+        scan_findings_table_array,
+        column_widths,
         None,
         tableStyle,
-        1,
+        2,
     )
     return findingTable
 
@@ -696,17 +920,57 @@ def write_csv_report(collection_info, csvFilename):
         csvwriter.writerows(data_rows)
 
 
+def list_of_strings(choices):
+    """Return a function that splits and checks comma-separated values."""
+
+    def splitarg(arg):
+        values = arg.split(",")
+        for value in values:
+            if value not in choices:
+                raise argparse.ArgumentTypeError(
+                    "invalid choice: {!r} (choose from {})".format(
+                        value, ", ".join(map(repr, choices))
+                    )
+                )
+        return values
+
+    return splitarg
+
+
 def main():
+    format_choices = ["pdf", "csv", "json"]
+    scan_type_choices = ["STATIC", "DYNAMIC", "SCA", "MANUAL"]
+
     parser = argparse.ArgumentParser(
-        description='This script lists modules in which static findings were identified.')
-    parser.add_argument('-c', '--collectionsid', help='Collections guid to create a report', required=True)
-    parser.add_argument('-f', '--format', help='Comma separate list of desired output formats. pdf (default), csv, json', required=False)
+        description="This script lists modules in which static findings were identified."
+    )
+    parser.add_argument(
+        "-c",
+        "--collectionsid",
+        help="Collections guid to create a report",
+        required=True,
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        type=list_of_strings(format_choices),
+        default=['pdf'],
+        help="Comma separate list of desired output formats. pdf (default), csv, json",
+        required=False,
+    )
+    parser.add_argument(
+        "-st",
+        "--scan_types",
+        type=list_of_strings(scan_type_choices),
+        default=["STATIC", "DYNAMIC", "SCA", "MANUAL"],
+        help="Comma separate list of desired scans to include, defaults to all options. options: STATIC, DYNAMIC, SCA, MANUAL",
+        required=False,
+    )
     args = parser.parse_args()
     collguid = args.collectionsid
+    format = args.format
+    scan_types = args.scan_types
 
-    format = ['pdf']
-    if args.format:
-        format = args.format.split(",")
     setup_logger()
 
     # CHECK FOR CREDENTIALS EXPIRATION
@@ -715,12 +979,12 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    collection_info = get_collection_information(collguid)
+    # collection_info = get_collection_information(collguid, scan_types)
 
     # Opening JSON file - Use for local testing to skip api calls
-    # with open('sample_collection.json', 'r') as openfile:
-    #     # Reading from json file
-    #     collection_info = json.load(openfile)
+    with open('sample_collection.json', 'r') as openfile:
+        # Reading from json file
+        collection_info = json.load(openfile)
 
     global collection_name
     collection_name = collection_info.get('name')
@@ -730,11 +994,12 @@ def main():
     global report_time
     today = datetime.datetime.now()
     report_time = today.strftime("%d/%m/%Y %H:%M:%S")
-    filename_time = today.strftime("%Y-%m-%d %H-%M-%S")
+    filename_time = ''
+    # filename_time = ' - ' + today.strftime("%Y-%m-%d %H-%M-%S")
     global copyright_year
     copyright_year = today.strftime("%Y")
 
-    outputFilename = "Veracode Collection - {} - {}".format(collection_name, filename_time)
+    outputFilename = "Veracode Collection - {}{}".format(collection_name, filename_time)
     print(outputFilename)
     log.info(outputFilename)
 

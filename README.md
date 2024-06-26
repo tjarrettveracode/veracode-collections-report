@@ -37,5 +37,6 @@ Arguments supported include:
 
 * --collectionsid, -c  (required): Collections guid for which to create a report.
 * --format, -f  (optional): Comma separate list of desired output formats. pdf (default), csv, json.
+* --scan_types, -st (optional): Comma separate list of desired scans to include, defaults to all options. options: STATIC, DYNAMIC, SCA, MANUAL
 
 The Collections Report produces two outputs: a PDF, a CSV and/or JSON file.
