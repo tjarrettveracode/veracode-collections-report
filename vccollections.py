@@ -91,13 +91,13 @@ def creds_expire_days_warning():
         print('These API credentials expire ', creds['expiration_ts'])
 
 
-def get_collection_information(collguid, scan_types):
+def get_collection_information(collguid, scan_types, affects_policy):
     collection_info = Collections().get(collguid)
     # assets = collection_info.get('asset_infos')
     assets = Collections().get_assets(collection_info.get('guid'))
     collection_info['asset_infos'] = assets
     applications = [asset['guid'] for asset in assets]
-    findings_list = get_policy_violating_findings(applications, scan_types)
+    findings_list = get_findings(applications, scan_types, affects_policy)
     for asset in assets:
         guid = asset.get('guid')
         if guid in findings_list and 'asset_info' not in findings_list.get(guid):
@@ -152,7 +152,7 @@ def update_collection_findings_by_sev(collection_summary, app_findings_summary):
     return collection_summary
 
 
-def get_policy_violating_findings(apps, scan_types_requested):
+def get_findings(apps, scan_types_requested, affects_policy):
     status = "Getting findings for {} applications…".format(len(apps))
     print(status)
     log.info(status)
@@ -163,14 +163,17 @@ def get_policy_violating_findings(apps, scan_types_requested):
     if ('SCA' in scan_types_requested):
         sca = True
         scan_types_requested.remove("SCA")
-
+    params = {}
+    if affects_policy:
+        params = {"violates_policy": True}
     for app in apps:
         this_app_SCA_findings = []
         log.debug("Getting findings for application {}".format(app))
-        this_app_findings = Findings().get_findings(app, scan_types_to_get, True)  # update to do by severity and policy status
+
+        this_app_findings = Findings().get_findings(app, scan_types_to_get, True, params)  # update to do by severity and policy status
         # SCA findings call must be made by itself currently. See official docs: https://docs.veracode.com/r/c_findings_v2_intro
         if sca:
-            this_app_SCA_findings = Findings().get_findings(app, 'SCA', True)  # update to do by severity and policy status
+            this_app_SCA_findings = Findings().get_findings(app, 'SCA', True)  # API does not accept violates_policy request parameter
         if len(this_app_SCA_findings) > 0:
             this_app_findings = this_app_findings + this_app_SCA_findings
         this_app_findings = get_app_profile_summary_data(this_app_findings)
@@ -994,10 +997,18 @@ def main():
         help="Comma separate list of desired scans to include, defaults to all options. options: STATIC, DYNAMIC, SCA, MANUAL",
         required=False,
     )
+    parser.add_argument(
+        "-p",
+        "--policy",
+        help="Only include findings that impact defined policy.",
+        required=False,
+        action="store_true",
+    )
     args = parser.parse_args()
     collguid = args.collectionsid
     format = args.format
     scan_types = args.scan_types
+    affects_policy = args.policy
 
     setup_logger()
 
@@ -1007,7 +1018,7 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    collection_info = get_collection_information(collguid, scan_types)
+    collection_info = get_collection_information(collguid, scan_types, affects_policy)
 
     # Opening JSON file - Use for local testing to skip api calls
     # with open('sample_collection.json', 'r') as openfile:
