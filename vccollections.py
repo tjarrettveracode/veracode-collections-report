@@ -979,12 +979,12 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    # collection_info = get_collection_information(collguid, scan_types)
+    collection_info = get_collection_information(collguid, scan_types)
 
     # Opening JSON file - Use for local testing to skip api calls
-    with open('sample_collection.json', 'r') as openfile:
-        # Reading from json file
-        collection_info = json.load(openfile)
+    # with open('sample_collection.json', 'r') as openfile:
+    #     # Reading from json file
+    #     collection_info = json.load(openfile)
 
     global collection_name
     collection_name = collection_info.get('name')
