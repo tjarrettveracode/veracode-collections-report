@@ -994,8 +994,8 @@ def main():
     global report_time
     today = datetime.datetime.now()
     report_time = today.strftime("%d/%m/%Y %H:%M:%S")
-    filename_time = ''
-    # filename_time = ' - ' + today.strftime("%Y-%m-%d %H-%M-%S")
+    # filename_time = ''
+    filename_time = ' - ' + today.strftime("%Y-%m-%d %H-%M-%S")
     global copyright_year
     copyright_year = today.strftime("%Y")
 
