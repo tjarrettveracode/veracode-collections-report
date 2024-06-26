@@ -8,9 +8,9 @@ import json
 import anticrlf
 import csv
 
-from reportlab.pdfgen import canvas
 from reportlab.lib import utils, colors
 from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
@@ -28,7 +28,6 @@ report_time = ''
 username = ''
 copyright_year = ''
 
-width, height = letter
 printable_width = 0
 logo = os.path.join("resources", "veracode-black-hires.jpg")
 spacer = Spacer(1, 0.5 * inch)
@@ -860,14 +859,17 @@ def otherPage(canvas, doc):
     canvas.restoreState()
 
 
-def write_pdf_report(collection_info, report_name):
+def write_pdf_report(collection_info, report_name, landscape_orientation):
     # cover page fields
-
+    page_size = letter
+    if landscape_orientation:
+        page_size = landscape(page_size)
     doc = SimpleDocTemplate(report_name,
                             rightMargin=.5*inch,
                             leftMargin=.5*inch,
                             topMargin=72,
-                            bottomMargin=72,)
+                            bottomMargin=72,
+                            pagesize=page_size)
     global printable_width
     printable_width = doc.width * 0.95
     Story = [spacer]
@@ -990,6 +992,13 @@ def main():
         required=False,
     )
     parser.add_argument(
+        "-l",
+        "--landscape",
+        help="Print PDF in landscape orientation",
+        required=False,
+        action="store_true",
+    )
+    parser.add_argument(
         "-st",
         "--scan_types",
         type=list_of_strings(scan_type_choices),
@@ -1009,6 +1018,7 @@ def main():
     format = args.format
     scan_types = args.scan_types
     affects_policy = args.policy
+    landscape_orientation = args.landscape
 
     setup_logger()
 
@@ -1033,8 +1043,9 @@ def main():
     global report_time
     today = datetime.datetime.now()
     report_time = today.strftime("%d/%m/%Y %H:%M:%S")
-    # filename_time = ''
+
     filename_time = ' - ' + today.strftime("%Y-%m-%d %H-%M-%S")
+    #filename_time = ''  # uncomment to output without date/time in filename
     global copyright_year
     copyright_year = today.strftime("%Y")
 
@@ -1053,7 +1064,7 @@ def main():
 
     if 'pdf' in format:
         pdfFilename = outputFilename+".pdf"
-        write_pdf_report(collection_info, pdfFilename)
+        write_pdf_report(collection_info, pdfFilename, landscape_orientation)
         jsonLog = "Wrote PDF file: {}".format(pdfFilename)
         print(jsonLog)
         log.info(jsonLog)
