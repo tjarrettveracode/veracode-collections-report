@@ -70,7 +70,6 @@ scan_type_names = {
 }
 
 
-
 # ******************************* #
 # Data collection section
 # ******************************* #
@@ -894,7 +893,26 @@ def write_csv_report(collection_info, csvFilename):
         # creating a csv writer object
         csvwriter = csv.writer(csvfile)
 
-        header_fields = ['Profile Name', 'Flaw Id', 'Scan Type', 'Severity', 'CWE Id', 'CWE Name', 'File Path/Name', 'Line Number']
+        header_fields = [
+            "Profile Name",
+            "Flaw Id",
+            "Scan Type",
+            "Severity",
+            "CWE Id",
+            "CWE Name",
+            "File Path/Name",
+            "Line Number",
+            "Path",
+            "Vulnerable Parameter",
+            "CVE #",
+            "CVE Name",
+            "SCA Component Name",
+            "SCA Version",
+            "Input Vector",
+            "MPT  Description",
+            "Status",
+            "Resolution"
+        ]
         # writing the fields
         csvwriter.writerow(header_fields)
         # writing the data rows
@@ -902,19 +920,29 @@ def write_csv_report(collection_info, csvFilename):
         data_rows = []
 
         for profile in findings_list:
-            if profile != 'collection_summary':
+            if profile != "collection_summary":
                 profileData = findings_list[profile]
-                app_findings = profileData['app_findings']
+                app_findings = profileData["app_findings"]
                 for ap in app_findings:
                     data_row = [
                         profileData["asset_info"]["name"],
-                        str(ap["issue_id"]),
-                        ap["scan_type"],
+                        str(ap.get("issue_id", '')),
+                        ap["scan_type"].capitalize(),
                         severity[ap["finding_details"]["severity"]],
-                        str(ap["finding_details"]["cwe"]["id"]),
-                        ap["finding_details"]["cwe"]["name"],
+                        str(ap["finding_details"].get("cwe", {}).get("id", "")),
+                        ap["finding_details"].get("cwe", {}).get("name", ""),
                         ap["finding_details"].get("file_path", ""),
                         str(ap["finding_details"].get("file_line_number", "")),
+                        ap["finding_details"].get("path", ""),
+                        ap["finding_details"].get("vulnerable_parameter", ""),
+                        str(ap["finding_details"].get("cve", {}).get("id", "")),
+                        ap["finding_details"].get("cve", {}).get("name", ""),
+                        ap["finding_details"].get("component_filename", ""),
+                        ap["finding_details"].get("version", ""),
+                        ap["finding_details"].get("input_vector", ""),
+                        ap.get("description", ""),
+                        ap["finding_status"]["status"].capitalize(),
+                        ap["finding_status"]["resolution"].capitalize(),
                     ]
                     data_rows.append(data_row)
         csvwriter.writerows(data_rows)
