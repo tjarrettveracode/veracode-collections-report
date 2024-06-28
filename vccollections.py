@@ -7,14 +7,19 @@ import os
 import json
 import anticrlf
 import csv
+import math
 
 from reportlab.lib import utils, colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.pagesizes import landscape
+from reportlab.lib.colors import HexColor, PCMYKColor
+from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 from reportlab.lib.units import inch
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.graphics.charts.legends import Legend
 
 
 from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
@@ -28,13 +33,21 @@ report_time = ''
 username = ''
 copyright_year = ''
 
+# veracode_blue_color = (CMYKColor(44, 5, 0, 19))
+# veracode_blue_color = Color(45, 77, 81, 1)
+veracode_blue_color = (HexColor('#74c4ce', htmlOnly=True))
+
 printable_width = 0
 logo = os.path.join("resources", "veracode-black-hires.jpg")
 spacer = Spacer(1, 0.5 * inch)
 
 styles = getSampleStyleSheet()
 styles.add(
-    ParagraphStyle(name="Normal12", parent=styles["Normal"], fontSize=12), alias="n12"
+    ParagraphStyle(name="NormalBlue", parent=styles["Normal"], textColor=veracode_blue_color), alias="nb"
+)
+styles.add(
+    ParagraphStyle(name="Heading1Blue", parent=styles["h1"], textColor=veracode_blue_color),
+    alias="h1b",
 )
 styles.add(
     ParagraphStyle(name="Heading5Right", parent=styles["h5"], alignment=TA_RIGHT),
@@ -61,6 +74,22 @@ severity = {
     0: "Informational",
 }
 
+severity_colors = (
+    HexColor('#d13a85', htmlOnly=True),
+    HexColor('#dc342e', htmlOnly=True),
+    HexColor('#e99833', htmlOnly=True),
+    HexColor('#f9ce42', htmlOnly=True),
+    HexColor('#c8da3b', htmlOnly=True),
+    HexColor('#90bc45', htmlOnly=True),
+)
+
+compliance_colors = (
+    HexColor('#d4473b', htmlOnly=True),
+    HexColor('#f68321', htmlOnly=True),
+    HexColor('#3eb849', htmlOnly=True),
+    HexColor('#cccccc', htmlOnly=True)
+)
+
 scan_type_names = {
     "STATIC": "Static",
     "DYNAMIC": "Dynamic",
@@ -68,6 +97,35 @@ scan_type_names = {
     "MANUAL": "Manual Penetration Testing",
 }
 
+didnotpassicon = os.path.join("resources", "fail.png")
+conditionalicon = os.path.join("resources", "conditional.png")
+passicon = os.path.join("resources", "pass.png")
+notassessicon = os.path.join("resources", "notassessed.png")
+
+
+# ******************************* #
+# Utilities
+# ******************************* #
+
+
+def roundup(x, multipleOf):
+    if isinstance(x, int) or isinstance(x, float):
+        x = int(x)
+    if x == 0:
+        return 0
+    return math.ceil(x / multipleOf) * multipleOf
+
+
+def get_icon_path_for_status(status):
+    match status:
+        case 'OUT_OF_COMPLIANCE':
+            return didnotpassicon
+        case 'WITHIN_GRACE_PERIOD':
+            return conditionalicon
+        case 'COMPLIANT':
+            return passicon
+        case _:
+            return notassessicon
 
 # ******************************* #
 # Data collection section
@@ -92,11 +150,12 @@ def creds_expire_days_warning():
 
 def get_collection_information(collguid, scan_types, affects_policy):
     collection_info = Collections().get(collguid)
-    # assets = collection_info.get('asset_infos')
     assets = Collections().get_assets(collection_info.get('guid'))
     collection_info['asset_infos'] = assets
     applications = [asset['guid'] for asset in assets]
     findings_list = get_findings(applications, scan_types, affects_policy)
+    collection_info['collection_summary'] = findings_list.pop('collection_summary')
+    collection_info['collection_policy_summary'] = findings_list.pop('collection_policy_summary')
     for asset in assets:
         guid = asset.get('guid')
         if guid in findings_list and 'asset_info' not in findings_list.get(guid):
@@ -120,23 +179,41 @@ def get_finding_severity(finding):
 
 def get_app_profile_summary_data(app_findings):
     app_summary_info = {}
-    findingsbysev = {}
-    findingsbysev['sev5'] = []
-    findingsbysev['sev4'] = []
-    findingsbysev['sev3'] = []
-    findingsbysev['sev2'] = []
-    findingsbysev['sev1'] = []
-    findingsbysev['sev0'] = []
+    allfindingsbysev = {}
+    allfindingsbysev['sev5'] = []
+    allfindingsbysev['sev4'] = []
+    allfindingsbysev['sev3'] = []
+    allfindingsbysev['sev2'] = []
+    allfindingsbysev['sev1'] = []
+    allfindingsbysev['sev0'] = []
+    policyfindingsbysev = {}
+    policyfindingsbysev['sev5'] = []
+    policyfindingsbysev['sev4'] = []
+    policyfindingsbysev['sev3'] = []
+    policyfindingsbysev['sev2'] = []
+    policyfindingsbysev['sev1'] = []
+    policyfindingsbysev['sev0'] = []
     app_findings.sort(key=get_finding_severity, reverse=True)
     for finding in app_findings:
         severity = finding["finding_details"]["severity"]
         severityStr = str(severity)
-        findingsbysev['sev'+severityStr].append(finding)
+        allfindingsbysev['sev'+severityStr].append(finding)
+        if finding['violates_policy']:
+            policyfindingsbysev['sev'+severityStr].append(finding)
 
-    for findingSev in findingsbysev:
-        findingsbysev[findingSev] = len(findingsbysev[findingSev])
+    for findingSev in allfindingsbysev:
+        allfindingsbysev[findingSev] = len(allfindingsbysev[findingSev])
 
-    app_summary_info['findings_by_severity'] = findingsbysev
+    total_policy_findings = 0
+    for policyFindingSev in policyfindingsbysev:
+        findings_by_sev_lenth = len(policyfindingsbysev[policyFindingSev])
+        policyfindingsbysev[policyFindingSev] = findings_by_sev_lenth
+        total_policy_findings += findings_by_sev_lenth
+
+    app_summary_info['findings_by_severity'] = allfindingsbysev
+    app_summary_info['policy_findings_by_severity'] = policyfindingsbysev
+    app_summary_info['total_findings'] = len(app_findings)
+    app_summary_info['total_policy_findings'] = total_policy_findings
     app_summary_info['app_findings'] = app_findings
     return app_summary_info
 
@@ -155,20 +232,21 @@ def get_findings(apps, scan_types_requested, affects_policy):
     status = "Getting findings for {} applications…".format(len(apps))
     print(status)
     log.info(status)
-    collection_summary = {}
+    collection_all_findings_summary = {}
+    collection_policy_summary = {}
     all_findings = {}
-    scan_types_to_get = []
     sca = False
+    scan_types_to_get = list(scan_types_requested)
     if ('SCA' in scan_types_requested):
         sca = True
-        scan_types_requested.remove("SCA")
+        scan_types_to_get.remove("SCA")
     params = {}
     if affects_policy:
-        params = {"violates_policy": True}
+        # params = {"violates_policy": True}
+        params = {}
     for app in apps:
         this_app_SCA_findings = []
         log.debug("Getting findings for application {}".format(app))
-
         this_app_findings = Findings().get_findings(app, scan_types_to_get, True, params)  # update to do by severity and policy status
         # SCA findings call must be made by itself currently. See official docs: https://docs.veracode.com/r/c_findings_v2_intro
         if sca:
@@ -176,10 +254,12 @@ def get_findings(apps, scan_types_requested, affects_policy):
         if len(this_app_SCA_findings) > 0:
             this_app_findings = this_app_findings + this_app_SCA_findings
         this_app_findings = get_app_profile_summary_data(this_app_findings)
-        collection_summary = update_collection_findings_by_sev(collection_summary, this_app_findings['findings_by_severity'])
+        collection_all_findings_summary = update_collection_findings_by_sev(collection_all_findings_summary, this_app_findings['findings_by_severity'])
+        collection_policy_summary = update_collection_findings_by_sev(collection_policy_summary, this_app_findings['policy_findings_by_severity'])
         all_findings[app] = this_app_findings
 
-    all_findings['collection_summary'] = collection_summary
+    all_findings['collection_summary'] = collection_all_findings_summary
+    all_findings['collection_policy_summary'] = collection_policy_summary
     return all_findings
 
 # ******************************* #
@@ -245,55 +325,108 @@ def cover_page(Story, user_name, report_time):
     Story.append(PageBreak())
 
 
-def summary_page(Story, collection_info):
-    compliance_status = Collections().compliance_titles[collection_info.get('compliance_status').lower()]
+def executive_summary_page(Story, collection_info):
+    compliance_status = collection_info.get('compliance_status')
+    compliance_status_text = Collections().compliance_titles[compliance_status.lower()]
     compliance_status_description = 'one or more assets did not pass policy'
     collection_description = collection_info.get('description')
-    findings_list = collection_info.get('findings_list')
-    findingsbysev = findings_list['collection_summary']
+    findingsbysev = collection_info['collection_summary']
+    policyfindingsbysev = collection_info['collection_policy_summary']
 
     compliance_overview = collection_info.get('compliance_overview')
 
-    sectionTitle = Paragraph("Executive Summary", styles["h1"])
-    Story.append(sectionTitle)
-    Story.append(spacer)
+    ## Executive Summary Title
+    sectionTitle = Paragraph("Executive Summary", styles["h1b"])
+    titleLayoutTableData = []
+    titleLayoutTableData.append([sectionTitle])
+    titleLayoutTable = Table(titleLayoutTableData, [1 * printable_width])
+    titleTableStyle = TableStyle(
+        [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LINEBELOW", (0, -1), (-1, -1), 1.25, veracode_blue_color),
+        ]
+    )
+    titleLayoutTable.setStyle(titleTableStyle)
+    Story.append(titleLayoutTable)
+    Story.append(Spacer(1, 0.125 * inch))
 
-    summaryTableData = []
-    summaryTableData.append(['Collection', collection_name])
+    ## Collection Summary section
+    left_icon = get_icon_path_for_status(compliance_status)
+    im = get_image(left_icon, .5*inch)
 
-    compliance_status_paragraph = Paragraph(compliance_status + "<br/><i>" + compliance_status_description + "</i>",styles['Normal'])
-    summaryTableData.append(['Status', compliance_status_paragraph])
+    ## Collection Summary wrapping layout table
+    summaryLayoutTableData = []
 
-    summaryTableData.append(['Collection Description', collection_description])
+    ## Collection Summary middle column table
+    middle_collectionInfoTableData = []
+    collection_title_style = ParagraphStyle('CollectionTitle', styles['nb'], fontSize=12)
+    middle_collectionInfoTableData.append([Paragraph('Collection: ' + collection_name, collection_title_style)])
 
-    summaryTableData.append(['Assets', collection_info.get('total_assets')])
-    summaryTable = Table(summaryTableData, [0.5 * printable_width, 0.5 * printable_width])
-    tstyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
-    summaryTable.setStyle(tstyle)
-    Story.append(summaryTable)
+    tableBodyTextStyle = styles['BodyText']
+    compliance_status_paragraph = Paragraph(
+        "<b>Status: "
+        + compliance_status_text
+        + "</b><br/><i>"
+        + compliance_status_description
+        + "</i>",
+        tableBodyTextStyle
+    )
+    middle_collectionInfoTableData.append([compliance_status_paragraph])
 
+    middle_collectionInfoTableData.append([Paragraph('Collection Description: ' + collection_description, tableBodyTextStyle)])
+    middle_collectionInfoTableData.append([Paragraph('Assets: ' + str(collection_info.get('total_assets')), tableBodyTextStyle)])
+    middle_collectionInfoTable = Table(middle_collectionInfoTableData, [0.5 * printable_width])
+    tMiddleStyle = TableStyle(
+        [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (0, 1), 4),
+            # ('INNERGRID', (0,1), (-1,-1), 0.25, colors.black),
+        ]
+    )
+    middle_collectionInfoTable.setStyle(tMiddleStyle)
+
+    ## Collection Summary right column table
+    right_findingSummanyTableData = []
+    total_findings = 0
+    for sev in findingsbysev:
+        total_findings += findingsbysev[sev]
+
+    total_policy_findings = 0
+    for sev in policyfindingsbysev:
+        total_policy_findings += policyfindingsbysev[sev]
+    normalRightStyle = ParagraphStyle(name="NormalRight", parent=styles["Normal"], alignment=TA_RIGHT)
+    right_findingSummanyTableData.append([Paragraph('OPEN FINDINGS: ' + str(total_findings), normalRightStyle)])
+    right_findingSummanyTableData.append([Paragraph('FINDINGS IMPACTING POLICY: ' + str(total_policy_findings), normalRightStyle)])
+
+    right_findingSummanyTable = Table(right_findingSummanyTableData, [0.4 * printable_width])
+    tRightStyle = TableStyle(
+        [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]
+    )
+    right_findingSummanyTable.setStyle(tRightStyle)
+
+    ## Collection Summary close and append layout table
+    summaryLayoutTableData.append([im, middle_collectionInfoTable, right_findingSummanyTable])
+    summaryLayoutTable = Table(summaryLayoutTableData, [0.1 * printable_width, 0.5 * printable_width, 0.4 * printable_width])
+    tLayoutStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
+    summaryLayoutTable.setStyle(tLayoutStyle)
+    Story.append(summaryLayoutTable)
     Story.append(spacer)
 
     wrappperTableData = []
 
-    complianceOverviewTableData = []
-    complianceOverviewTableData.append([Paragraph('Compliance Overview', styles['h3']), ''])
-    complianceOverviewTableData.append(['', ''])
-    complianceOverviewTableData.append([Paragraph('Did Not Pass:'), compliance_overview['not_passing_policy']])
-    complianceOverviewTableData.append([Paragraph('Passed:'), compliance_overview['passing_policy']])
-    complianceOverviewTableData.append([Paragraph('Conditionally Pass:'), compliance_overview['conditionally_passing_policy']])
-    complianceOverviewTableData.append([Paragraph('Not Assessed:'), compliance_overview['not_assessed']])
-    complianceOverviewTable = Table(complianceOverviewTableData, [0.3 * printable_width, 0.1 * printable_width])
-    complianceOverviewStyle = TableStyle(
-        [("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (0, 0), (-1, -1), "RIGHT")]
-    )
-    complianceOverviewTable.setStyle(complianceOverviewStyle)
-    complianceOverviewTable.hAlign = 'LEFT'
+    complianceSummaryPieChart = compliance_summary_pie_chart(compliance_overview)
 
-    openFindingsPolicyTable = findings_summary(findingsbysev)
+    openFindingsPolicyTable = findings_summary_chart(policyfindingsbysev)
 
-    wrappperTableData.append([complianceOverviewTable, openFindingsPolicyTable])
-    wrapperTable = Table(wrappperTableData, [0.5 * printable_width, 0.5 * printable_width])
+    wrappperTableData.append([complianceSummaryPieChart, openFindingsPolicyTable])
+    wrapperTable = Table(wrappperTableData, [0.5 * printable_width, 0.5 * printable_width], 0.7 * printable_width)
     wrapperTableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
     wrapperTable.setStyle(wrapperTableStyle)
     wrapperTable.hAlign = 'LEFT'
@@ -301,45 +434,167 @@ def summary_page(Story, collection_info):
     Story.append(PageBreak())
 
 
-def findings_summary(findingsbysev):
-    openFindingsPolicyTableData = []
-    openFindingsPolicyTableData.append([Paragraph('Open Findings Impacting Policy', styles['h3']), ''])
-    openFindingsPolicyTableData.append(['', ''])
-    openFindingsPolicyTableData.append([Paragraph('Very High Severity:'), findingsbysev['sev5']])
-    openFindingsPolicyTableData.append([Paragraph('High Severity:'), findingsbysev['sev4']])
-    openFindingsPolicyTableData.append([Paragraph('Medium Severity:'), findingsbysev['sev3']])
-    openFindingsPolicyTableData.append([Paragraph('Low Severity:'), findingsbysev['sev2']])
-    openFindingsPolicyTableData.append([Paragraph('Very Low Severity:'), findingsbysev['sev1']])
-    openFindingsPolicyTableData.append([Paragraph('Informational Severity:'), findingsbysev['sev0']])
-    openFindingsPolicyTable = Table(openFindingsPolicyTableData, [0.3 * printable_width, 0.1 * printable_width])
-    openFindingsPolicyStyle = TableStyle(
+def compliance_summary_pie_chart(compliance_overview):
+    fail = compliance_overview['not_passing_policy']
+    conditional = compliance_overview['conditionally_passing_policy']
+    passing = compliance_overview['passing_policy']
+    not_assess = compliance_overview['not_assessed']
+    compliance_data = [fail, conditional, passing, not_assess]
+    total_assets = sum(compliance_data)
+
+    d = Drawing(0.4 * printable_width, 0.35 * printable_width)
+
+    pc = Pie()
+    pc.x = 5
+    pc.y = 20
+    pc.width = 0.2 * printable_width
+    pc.height = 0.2 * printable_width
+    pc.data = compliance_data
+
+    # Pie
+    pc.simpleLabels = 0
+    pc.strokeWidth = 0
+    # Slices
+    pc.slices.strokeWidth = 0.5
+    pc.slices.strokeColor = PCMYKColor(0, 0, 0, 0)
+    # Legend
+    legend = Legend()
+    legend.alignment = "left"
+    legend.boxAnchor      = 'c'
+    legend.x = 170
+    legend.y = 70
+    legend.columnMaximum = 99
+    legend.dx = 6
+    legend.dy = 6
+    legend.dxTextSpace = 5
+    legend.deltay = 10
+    legend.strokeWidth = 0
+    itemLabels = [
+        (get_compliance_percent_string(fail, total_assets), "Did Not Pass"),
+        (get_compliance_percent_string(conditional,  total_assets), "Conditional Pass"),
+        (get_compliance_percent_string(passing, total_assets), "Passed"),
+        (get_compliance_percent_string(not_assess, total_assets), "Not Assessed"),
+    ]
+    items = []
+    for i, color in enumerate(compliance_colors):
+        items.append((color, itemLabels[i]))
+        pc.slices[i].fillColor = color
+    legend.colorNamePairs = items
+    d.add(legend)
+    d.add(pc)
+
+    return d
+
+
+def get_compliance_percent_string(current, total):
+    return "{}%".format(str((current / total) * 100))
+
+
+def findings_summary_chart(findingsbysev):
+
+    openFindingsData = [
+        (
+            findingsbysev["sev5"],
+            findingsbysev["sev4"],
+            findingsbysev["sev3"],
+            findingsbysev["sev2"],
+            findingsbysev["sev1"],
+            findingsbysev["sev0"],
+        )
+    ]
+
+    drawing = Drawing(0.4 * printable_width, 0.35 * printable_width)
+    bc = VerticalBarChart()
+    bc.x = 0
+    bc.y = 0.08 * printable_width
+    bc.width = 0.4 * printable_width
+    bc.height = 0.27 * printable_width
+    bc.data = openFindingsData
+    bc.strokeWidth = 0
+    # bc.strokeColor = veracode_blue_color
+    bc.barLabelFormat = "%s"
+    bc.barLabels.nudge = 10
+    # bc.barLabels.fontName        = fontName
+    bc.barLabels.fontSize = 10
+    bc.bars.strokeColor = None
+    for i, color in enumerate(severity_colors):
+        bc.bars[0, i].fillColor = color
+
+    # Calculate step intervals and upper boundaries for chart
+    max_value = 0
+    for row in openFindingsData:
+        new_max_value = max(row)
+        max_value = max([new_max_value, max_value])
+    step_interval = roundup(max_value, 10) / 5
+    upper_bound = roundup(max_value, step_interval) + 35
+    if upper_bound == 0:
+        upper_bound = 100
+    if step_interval == 0:
+        step_interval = 10
+
+    bc.valueAxis.valueMin = 0
+    bc.valueAxis.valueMax = upper_bound
+    bc.valueAxis.valueStep = step_interval
+    # bc.valueAxis.labels.fontName = fontName
+    # bc.valueAxis.labels.fontSize = 8
+    bc.valueAxis.visible = 0
+    # bc.valueAxis.rangeRound = "both"
+    # bc.valueAxis.strokeWidth = 0
+    # bc.valueAxis.visibleGrid = 0
+    # bc.valueAxis.visibleTicks = 0
+    # bc.valueAxis.visibleAxis = 0
+    # bc.valueAxis.gridStrokeColor = PCMYKColor(100, 0, 46, 46)
+    # bc.valueAxis.gridStrokeWidth = 0
+
+    bc.categoryAxis.labels.boxAnchor = 'ne'
+    bc.categoryAxis.labels.fontSize = 7
+    bc.categoryAxis.labels.dx = 6
+    bc.categoryAxis.labels.dy = -2
+    bc.categoryAxis.labels.angle = 45
+    bc.categoryAxis.visibleTicks = 0
+    bc.categoryAxis.visibleAxis = 0
+    bc.categoryAxis.categoryNames = [
+        severity[5],
+        severity[4],
+        severity[3],
+        severity[2],
+        severity[1],
+        severity[0],
+    ]
+    drawing.add(bc)
+    tableTitle = Paragraph('Open Findings Impacting Policy', styles['h3'])
+    wrappingTable = summary_table_wrap(drawing, tableTitle)
+    return wrappingTable
+
+
+def summary_table_wrap(drawing, tableTitle):
+    wrappingTableData = []
+    wrappingTableData.append([tableTitle])
+    wrappingTableData.append([drawing])
+    wrappingTable = Table(wrappingTableData, [0.5 * printable_width])
+    wrappingTableStyle = TableStyle(
         [
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("SPAN", (0, 0), (1, 0)),
-            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("BOX", (0, 1), (-1, -1), 1.25, veracode_blue_color),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ]
     )
-    openFindingsPolicyTable.setStyle(openFindingsPolicyStyle)
-    openFindingsPolicyTable.hAlign = 'LEFT'
-    return openFindingsPolicyTable
+    wrappingTable.setStyle(wrappingTableStyle)
+    wrappingTable.hAlign = 'LEFT'
+    return wrappingTable
 
 
 def asset_policy_evaluation_page(Story, collection_info):
     assets = collection_info.get('asset_infos')
 
-    didnotpassicon = os.path.join("resources", "fail.png")
-    conditionalicon = os.path.join("resources", "conditional.png")
-    passicon = os.path.join("resources", "pass.png")
-    notassessicon = os.path.join("resources", "notassessed.png")
+    sectionTitle = Paragraph("Asset Policy Evaluation", styles["h1"])
+    Story.append(sectionTitle)
+    Story.append(spacer)
 
     not_passed = collection_info['compliance_overview']['not_passing_policy']
     conditional = collection_info['compliance_overview']['conditionally_passing_policy']
     passed = collection_info['compliance_overview']['passing_policy']
     not_assessed = collection_info['compliance_overview']['not_assessed']
-
-    sectionTitle = Paragraph("Asset Policy Evaluation", styles["h1"])
-    Story.append(sectionTitle)
-    Story.append(spacer)
 
     if not_passed > 0:
         # section - did not pass
@@ -364,8 +619,11 @@ def asset_policy_evaluation_page(Story, collection_info):
 
 
 def asset_policy_evaluation_section(Story, compliance_type, icon, descriptiontext, assets):
+    headerStyle = ParagraphStyle(
+        name="headerStyle", parent=styles["Normal"], fontSize=12
+    )
     section_header = Paragraph(
-        Collections().compliance_titles[compliance_type.upper()], styles["n12"]
+        Collections().compliance_titles[compliance_type.upper()], headerStyle
     )
     sectionTitleTableData = []
     im = get_image(icon, .2*inch)
@@ -403,6 +661,7 @@ def profile_summary_table(compliance_type, assets):
     fail_icon = get_image(os.path.join("resources", "small", "fail.png"), 0.1 * inch)
     tableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE")])
     ps = styles['Normal']
+    # ps.fontSize = 10
     for asset in assets:
         if asset["attributes"]["policies"][0]["policy_compliance_status"] == compliance_type or compliance_type is None:
             status_rules = asset['attributes'].get('policy_passed_rules')
@@ -526,7 +785,7 @@ def profile_summary_section(Story, profile):
     summary_table = profile_summary_table(None, [asset_info])
     summary_data.append(summary_table)
     summary_data.append(Spacer(1, .25*inch))
-    findings_summary_table = findings_summary(profile['findings_by_severity'])
+    findings_summary_table = findings_summary_chart(profile['findings_by_severity'])
     summary_data.append(findings_summary_table)
     Story.append(KeepTogether(summary_data))
     Story.append(Spacer(1, .25*inch))
@@ -876,7 +1135,7 @@ def write_pdf_report(collection_info, report_name, landscape_orientation):
 
     cover_page(Story, username, report_time)
 
-    summary_page(Story, collection_info)
+    executive_summary_page(Story, collection_info)
 
     asset_policy_evaluation_page(Story, collection_info)
 
@@ -1028,12 +1287,12 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    collection_info = get_collection_information(collguid, scan_types, affects_policy)
+    # collection_info = get_collection_information(collguid, scan_types, affects_policy)
 
     # Opening JSON file - Use for local testing to skip api calls
-    # with open('sample_collection.json', 'r') as openfile:
-    #     # Reading from json file
-    #     collection_info = json.load(openfile)
+    with open('sample_collection.json', 'r') as openfile:
+        # Reading from json file
+        collection_info = json.load(openfile)
 
     global collection_name
     collection_name = collection_info.get('name')
@@ -1045,7 +1304,7 @@ def main():
     report_time = today.strftime("%d/%m/%Y %H:%M:%S")
 
     filename_time = ' - ' + today.strftime("%Y-%m-%d %H-%M-%S")
-    #filename_time = ''  # uncomment to output without date/time in filename
+    filename_time = ''  # uncomment to output without date/time in filename
     global copyright_year
     copyright_year = today.strftime("%Y")
 
