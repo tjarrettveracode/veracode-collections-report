@@ -419,13 +419,16 @@ def executive_summary_page(Story, collection_info):
     Story.append(summaryLayoutTable)
     Story.append(spacer)
 
+    ## Overview Charts
     wrappperTableData = []
 
     complianceSummaryPieChart = compliance_summary_pie_chart(compliance_overview)
-
     openFindingsPolicyTable = findings_summary_chart(policyfindingsbysev)
-
     wrappperTableData.append([complianceSummaryPieChart, openFindingsPolicyTable])
+
+    
+
+
     wrapperTable = Table(wrappperTableData, [0.5 * printable_width, 0.5 * printable_width], 0.7 * printable_width)
     wrapperTableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
     wrapperTable.setStyle(wrapperTableStyle)
@@ -445,7 +448,7 @@ def compliance_summary_pie_chart(compliance_overview):
     d = Drawing(0.4 * printable_width, 0.35 * printable_width)
 
     pc = Pie()
-    pc.x = 5
+    pc.x = -5
     pc.y = 20
     pc.width = 0.2 * printable_width
     pc.height = 0.2 * printable_width
@@ -459,9 +462,9 @@ def compliance_summary_pie_chart(compliance_overview):
     pc.slices.strokeColor = PCMYKColor(0, 0, 0, 0)
     # Legend
     legend = Legend()
-    legend.alignment = "left"
-    legend.boxAnchor      = 'c'
-    legend.x = 170
+    legend.alignment = "right"
+    legend.boxAnchor = "c"
+    legend.x = 155
     legend.y = 70
     legend.columnMaximum = 99
     legend.dx = 6
@@ -469,21 +472,26 @@ def compliance_summary_pie_chart(compliance_overview):
     legend.dxTextSpace = 5
     legend.deltay = 10
     legend.strokeWidth = 0
+    legend.strokeColor = None
     itemLabels = [
-        (get_compliance_percent_string(fail, total_assets), "Did Not Pass"),
-        (get_compliance_percent_string(conditional,  total_assets), "Conditional Pass"),
-        (get_compliance_percent_string(passing, total_assets), "Passed"),
-        (get_compliance_percent_string(not_assess, total_assets), "Not Assessed"),
+        (get_compliance_percent_string(fail, total_assets), " Did Not Pass"),
+        (get_compliance_percent_string(conditional, total_assets), " Conditional Pass"),
+        (get_compliance_percent_string(passing, total_assets), " Passed"),
+        (get_compliance_percent_string(not_assess, total_assets), " Not Assessed"),
     ]
     items = []
     for i, color in enumerate(compliance_colors):
         items.append((color, itemLabels[i]))
         pc.slices[i].fillColor = color
     legend.colorNamePairs = items
+    legend.subCols[1].align = "left"
     d.add(legend)
     d.add(pc)
 
-    return d
+    tableTitle = Paragraph('Compliance Overview', styles['h3'])
+    wrappingTable = summary_table_wrap(d, tableTitle)
+
+    return wrappingTable
 
 
 def get_compliance_percent_string(current, total):
@@ -571,7 +579,7 @@ def summary_table_wrap(drawing, tableTitle):
     wrappingTableData = []
     wrappingTableData.append([tableTitle])
     wrappingTableData.append([drawing])
-    wrappingTable = Table(wrappingTableData, [0.5 * printable_width])
+    wrappingTable = Table(wrappingTableData, [0.45 * printable_width])
     wrappingTableStyle = TableStyle(
         [
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
