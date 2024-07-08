@@ -426,9 +426,6 @@ def executive_summary_page(Story, collection_info):
     openFindingsPolicyTable = findings_summary_chart(policyfindingsbysev)
     wrappperTableData.append([complianceSummaryPieChart, openFindingsPolicyTable])
 
-    
-
-
     wrapperTable = Table(wrappperTableData, [0.5 * printable_width, 0.5 * printable_width], 0.7 * printable_width)
     wrapperTableStyle = TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])
     wrapperTable.setStyle(wrapperTableStyle)
@@ -449,9 +446,9 @@ def compliance_summary_pie_chart(compliance_overview):
 
     pc = Pie()
     pc.x = -5
-    pc.y = 20
-    pc.width = 0.2 * printable_width
-    pc.height = 0.2 * printable_width
+    pc.y = (0.35 * printable_width) / 4
+    pc.width = 0.18 * printable_width
+    pc.height = 0.18 * printable_width
     pc.data = compliance_data
 
     # Pie
@@ -465,7 +462,7 @@ def compliance_summary_pie_chart(compliance_overview):
     legend.alignment = "right"
     legend.boxAnchor = "c"
     legend.x = 155
-    legend.y = 70
+    legend.y = (0.35 * printable_width) / 2
     legend.columnMaximum = 99
     legend.dx = 6
     legend.dy = 6
