@@ -1,4 +1,4 @@
 requests>=2.24.0
-veracode-api-py>=0.9.7
-reportlab>=3.5.60
+veracode-api-py>=0.9.47
+reportlab>=4.2.0
 logging-formatter-anticrlf>=1.2
