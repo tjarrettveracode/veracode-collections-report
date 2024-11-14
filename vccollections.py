@@ -247,7 +247,7 @@ def get_findings(apps, scan_types_requested, affects_policy):
     for app in apps:
         this_app_SCA_findings = []
         log.debug("Getting findings for application {}".format(app))
-        this_app_findings = Findings().get_findings(app, scan_types_to_get, True, params)  # update to do by severity and policy status
+        this_app_findings = Findings().get_findings(app, ','.join(scan_types_to_get), True, params)  # update to do by severity and policy status
         # SCA findings call must be made by itself currently. See official docs: https://docs.veracode.com/r/c_findings_v2_intro
         if sca:
             this_app_SCA_findings = Findings().get_findings(app, 'SCA', True)  # API does not accept violates_policy request parameter
