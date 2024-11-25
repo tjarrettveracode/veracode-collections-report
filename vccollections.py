@@ -981,7 +981,7 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
     ]
 
     second_row = [
-        "<b>Path:</b>",
+        "<b>Target URL:</b>",
         f['finding_details'].get('hostname', '') + f['finding_details'].get('path', ''),
         "<b>Vulnerable Parameter:</b>",
         f['finding_details'].get('vulnerable_parameter', ''),
