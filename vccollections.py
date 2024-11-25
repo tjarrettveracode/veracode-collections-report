@@ -249,7 +249,7 @@ def get_findings(apps, scan_types_requested, affects_policy):
     for app in apps:
         this_app_SCA_findings = []
         log.debug("Getting findings for application {}".format(app))
-        this_app_findings = Findings().get_findings(app, scan_types_to_get, True, params)  # update to do by severity and policy status
+        this_app_findings = Findings().get_findings(app, ','.join(scan_types_to_get), True, params)  # update to do by severity and policy status
         # SCA findings call must be made by itself currently. See official docs: https://docs.veracode.com/r/c_findings_v2_intro
         if sca:
             this_app_SCA_findings = Findings().get_findings(app, 'SCA', True)  # API does not accept violates_policy request parameter
@@ -967,7 +967,7 @@ def try_decode(element):
         return element
 
 def get_dynamic_table_title():
-    return [Paragraph('<b>Detailed Dynamic Findings</b>', style=ParagraphStyle(name="Detailed Findings Style", borderWidth=1, borderColor=colors.black))]
+    return [[Paragraph('<b>Detailed Dynamic Findings</b>', style=ParagraphStyle(name="Detailed Findings Style", borderWidth=1, borderColor=colors.black))]]
 
 def dynamic_finding_data_rows(f, is_first_dast_finding):
     first_row = [
@@ -982,7 +982,7 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
 
     second_row = [
         "<b>Path:</b>",
-        f['finding_details'].get('path', ''),
+        f['finding_details'].get('hostname', '') + f['finding_details'].get('path', ''),
         "<b>Vulnerable Parameter:</b>",
         f['finding_details'].get('vulnerable_parameter', ''),
     ]
@@ -1004,7 +1004,7 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
     column_widths = get_column_widths_for_scan_type("DYNAMIC")
     header_row = dynamic_findings_table_headers()
 
-    return KeepTogether((make_table_for_dast([get_dynamic_table_title()], [pw])) if is_first_dast_finding else [] + [
+    return KeepTogether((make_table_for_dast(get_dynamic_table_title(), [pw])) if is_first_dast_finding else [] + [
         make_table_for_dast(header_row, column_widths),
         HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None),
         make_table_for_dast(wrap_row_data(first_row, False, True), column_widths), 
