@@ -8,11 +8,12 @@ import json
 import anticrlf
 import csv
 import math
+from base64 import b64decode
 
 from reportlab.lib import utils, colors
 from reportlab.lib.colors import HexColor, PCMYKColor
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image, Table, TableStyle, KeepTogether, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
 from reportlab.lib.units import inch
@@ -23,6 +24,7 @@ from reportlab.graphics.charts.legends import Legend
 
 
 from veracode_api_py import VeracodeAPI as vapi, Collections, Findings, Users
+from veracode_api_py.apihelper import APIHelper
 
 log = logging.getLogger(__name__)
 
@@ -324,10 +326,21 @@ def cover_page(Story, user_name, report_time):
     Story.append(t)
     Story.append(PageBreak())
 
+def get_compliance_status_text(compliance_status):
+    lower_status = compliance_status.lower()
+    upper_status = compliance_status.upper()
+    if lower_status in Collections().compliance_titles:
+        return Collections().compliance_titles[lower_status]
+    elif upper_status in Collections().compliance_titles:
+        return Collections().compliance_titles[upper_status]
+    elif compliance_status in Collections().compliance_titles:
+        return Collections().compliance_titles[compliance_status]
+    else:
+        return ""
 
 def executive_summary_page(Story, collection_info):
     compliance_status = collection_info.get('compliance_status')
-    compliance_status_text = Collections().compliance_titles[compliance_status.lower()]
+    compliance_status_text = get_compliance_status_text(compliance_status)
     compliance_status_description = 'one or more assets did not pass policy'
     collection_description = collection_info.get('description')
     findingsbysev = collection_info['collection_summary']
@@ -795,9 +808,24 @@ def profile_summary_section(Story, profile):
     Story.append(KeepTogether(summary_data))
     Story.append(Spacer(1, .25*inch))
 
+def append_for_scan_type(scan_type, f, findingsTableArray, is_first_dast_finding):
+    if scan_type == 'DYNAMIC':
+        findingsTableArray[scan_type].append(dynamic_finding_data_rows(f, is_first_dast_finding))
+        return False
+    match scan_type:
+        case "STATIC":
+            data_row = static_findings_data_row(f)
+        case 'SCA':
+            data_row = sca_findings_data_row(f)
+        case 'MANUAL':
+            data_row = manual_findings_data_row(f)
+    if len(data_row) > 0:
+        findingsTableArray[scan_type].append(data_row) 
+    return is_first_dast_finding
 
 def profile_details_section(Story, profile):
     findings = profile['app_findings']
+    is_first_dast_finding = True
     if len(findings) > 0:
         sectionTitle = Paragraph('Detailed Findings', styles['h3'])
         Story.append(sectionTitle)
@@ -805,29 +833,18 @@ def profile_details_section(Story, profile):
         findingsTableArray = {}
         for f in findings:
             scan_type = f['scan_type']
-            data_row = []
             if (findingsTableArray.get(scan_type) is None):
                 findingsTableArray[scan_type] = []
-            match scan_type:
-                case "STATIC":
-                    data_row = static_findings_data_row(f)
-                case 'DYNAMIC':
-                    data_row = dyanmic_findings_data_row(f)
-                case 'SCA':
-                    data_row = sca_findings_data_row(f)
-                case 'MANUAL':
-                    data_row = manual_findings_data_row(f)
-            if len(data_row) > 0:
-                findingsTableArray[scan_type].append(data_row)
+            is_first_dast_finding = append_for_scan_type(scan_type, f, findingsTableArray, is_first_dast_finding)            
         for scan_type in findingsTableArray:
             if (len(findingsTableArray[scan_type]) > 1):
                 findingTable = findings_table_generation(findingsTableArray[scan_type], scan_type)
-                Story.append(findingTable)
+                Story.extend(findingTable)
                 Story.append(Spacer(1, .25*inch))
         Story.append(Spacer(1, .25*inch))
 
 
-def wrap_row_data(rowData, bold):
+def wrap_row_data(rowData, bold, is_table=False):
     lead_text = ''
     trail_text = ''
     if bold:
@@ -838,7 +855,7 @@ def wrap_row_data(rowData, bold):
         if isinstance(item, int) or isinstance(item, float):
             item = str(item)
         new_row_data.append(Paragraph(lead_text+item+trail_text))
-    return new_row_data
+    return [new_row_data] if is_table else new_row_data
 
 
 def static_findings_table_headers():
@@ -861,8 +878,7 @@ def dynamic_findings_table_headers():
                 "Severity",
                 "CWE #",
                 "CWE Name",
-                "Path",
-                "Vulnerable Parameter",
+                "Finding Category",
                 "Status",
                 "Resolution"
             ]
@@ -911,20 +927,95 @@ def static_findings_data_row(f):
     ]
     return wrap_row_data(data_row, False)
 
+def get_cwe_information(cwe_id):
+    uri = f"appsec/v1/cwes/{cwe_id}"
+    return APIHelper()._rest_request(uri,"GET")
 
-def dyanmic_findings_data_row(f):
-    data_row = [
+def get_remediation_effort(remediation_int):
+    match remediation_int:
+        case 1:
+            return "1 - Trivial"
+        case 2:
+            return "2 - Implementation error"
+        case 3:
+            return "3 - Complex implementation error"
+        case 4:
+            return "4 - Simple design error"
+        case 5:
+            return "5 - Complex design error"
+    return "undefined"
+
+def make_table_for_dast(elements, column_widths):
+    tableStyle = TableStyle(
+        [
+            ("SPAN", (0, 0), (0, 0)),
+            ("ALIGNMENT", (0, 0), (-1, 0), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+    )
+    return Table(
+        elements,
+        column_widths,
+        None,
+        tableStyle,
+    )
+
+def try_decode(element):
+    try:
+        return b64decode(element).decode("utf-8")
+    except Exception:
+        return element
+
+def get_dynamic_table_title():
+    return [[Paragraph('<b>Detailed Dynamic Findings</b>', style=ParagraphStyle(name="Detailed Findings Style", borderWidth=1, borderColor=colors.black))]]
+
+def dynamic_finding_data_rows(f, is_first_dast_finding):
+    first_row = [
         f.get('issue_id', ''),
         severity[f['finding_details']['severity']],
         f['finding_details']['cwe']['id'],
-        f['finding_details']['cwe']['name'],
-        f['finding_details'].get('path', ''),
-        f['finding_details'].get('vulnerable_parameter', ''),
+        f['finding_details']['cwe']['name'],        
+        f['finding_details']['finding_category']['name'],
         f['finding_status']['status'].capitalize(),
         f['finding_status']['resolution'].capitalize()
     ]
-    return wrap_row_data(data_row, False)
 
+    second_row = [
+        "<b>Target URL:</b>",
+        f['finding_details'].get('hostname', '') + f['finding_details'].get('path', ''),
+        "<b>Vulnerable Parameter:</b>",
+        f['finding_details'].get('vulnerable_parameter', ''),
+    ]
+
+    cwe_information = get_cwe_information(f['finding_details']['cwe']['id'])
+    third_row = [
+        "<b>Effort to fix:</b>",
+        get_remediation_effort(cwe_information["remediation_effort"]),
+        "<b>Remediation Guidance:</b>",
+        cwe_information["recommendation"]
+    ] if cwe_information else []
+
+    forth_row = [
+        "<b>Description:</b>",
+        try_decode(f['description']).replace("<span>", "").replace("</span>", "")
+    ]
+
+    pw = printable_width
+    column_widths = get_column_widths_for_scan_type("DYNAMIC")
+    header_row = dynamic_findings_table_headers()
+
+    return KeepTogether((make_table_for_dast(get_dynamic_table_title(), [pw])) if is_first_dast_finding else [] + [
+        make_table_for_dast(header_row, column_widths),
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None),
+        make_table_for_dast(wrap_row_data(first_row, False, True), column_widths), 
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.dimgray, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=(2, 2)),
+        make_table_for_dast(wrap_row_data(second_row, False, True), [0.09 * pw, 0.19 * pw, 0.25 * pw, 0.47 * pw]), 
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.dimgray, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=(2, 2)),
+        make_table_for_dast(wrap_row_data(third_row, False, True), [0.09 * pw, 0.19 * pw, 0.25 * pw, 0.47 * pw]),
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.dimgray, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=(2, 2)),
+        make_table_for_dast(wrap_row_data(forth_row, False, True), [0.09 * pw, 0.91 * pw]),
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None)
+    ])
 
 def sca_findings_data_row(f):
     data_row = [
@@ -975,8 +1066,7 @@ def get_column_widths_for_scan_type(scan_type):
                 0.12 * pw,  # Severity
                 0.08 * pw,  # CWE #
                 0.25 * pw,  # CWE Name
-                0.11 * pw,  # Path
-                0.1 * pw,  # Vulnerable Parameter
+                0.23 * pw,  # Finding Category
                 0.1 * pw,  # Status
                 0.14 * pw,  # Resolution
             ]
@@ -1029,11 +1119,7 @@ def get_table_header_for_scan_type(scan_type):
         case _: return []
 
 
-def findings_table_generation(findingTableData, scan_type):
-    tableTitle = Paragraph('Detailed ' + scan_type_names[scan_type] + ' Findings', styles['h4'])
-    tableHeaders = get_table_header_for_scan_type(scan_type)
-    column_widths = get_column_widths_for_scan_type(scan_type)
-    scan_findings_table_array = [[tableTitle]] + tableHeaders + findingTableData
+def findings_table_generation(findingTableData, scan_type):  
     tableStyle = TableStyle(
         [
             ("SPAN", (0, 0), (-1, 0)),
@@ -1042,6 +1128,15 @@ def findings_table_generation(findingTableData, scan_type):
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]
     )    
+
+    if scan_type == "DYNAMIC":
+        return findingTableData
+        
+    tableTitle = Paragraph('Detailed ' + scan_type_names[scan_type] + ' Findings', styles['h4'])
+    tableHeaders = get_table_header_for_scan_type(scan_type)
+    scan_findings_table_array = [[tableTitle]] + tableHeaders + findingTableData  
+    column_widths = get_column_widths_for_scan_type(scan_type)
+    
     findingTable = Table(
         scan_findings_table_array,
         column_widths,
@@ -1049,7 +1144,7 @@ def findings_table_generation(findingTableData, scan_type):
         tableStyle,
         2,
     )
-    return findingTable
+    return [findingTable]
 
 
 def _header(canvas, doc, content):
@@ -1169,6 +1264,7 @@ def write_csv_report(collection_info, csvFilename):
             "Severity",
             "CWE Id",
             "CWE Name",
+            "Finding Category",
             "File Path/Name",
             "Line Number",
             "Path",
@@ -1200,6 +1296,7 @@ def write_csv_report(collection_info, csvFilename):
                         severity[ap["finding_details"]["severity"]],
                         str(ap["finding_details"].get("cwe", {}).get("id", "")),
                         ap["finding_details"].get("cwe", {}).get("name", ""),
+                        ap["finding_details"].get("finding_category", {}).get("name", ""),
                         ap["finding_details"].get("file_path", ""),
                         str(ap["finding_details"].get("file_line_number", "")),
                         ap["finding_details"].get("path", ""),
@@ -1245,7 +1342,13 @@ def main():
         "-c",
         "--collectionsid",
         help="Collections guid to create a report",
-        required=True,
+        required=False,
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        help="Collections name to create a report",
+        required=False,
     )
     parser.add_argument(
         "-f",
@@ -1278,7 +1381,9 @@ def main():
         action="store_true",
     )
     args = parser.parse_args()
-    collguid = args.collectionsid
+
+    collguid = validate_collection_input(args)
+
     format = args.format
     scan_types = args.scan_types
     affects_policy = args.policy
@@ -1292,12 +1397,14 @@ def main():
     status = "Getting asset data for collection {}...".format(collguid)
     log.info(status)
     print(status)
-    collection_info = get_collection_information(collguid, scan_types, affects_policy)
 
-    # Opening JSON file - Use for local testing to skip api calls
-    # with open('sample_collection.json', 'r') as openfile:
-    #     # Reading from json file
-    #     collection_info = json.load(openfile)
+    IS_DEBUG = False
+    if IS_DEBUG:
+        # Opening JSON file - Use for local testing to skip api calls
+        with open('sample_collection.json', 'r') as openfile:
+            collection_info = json.load(openfile)
+    else: 
+        collection_info = get_collection_information(collguid, scan_types, affects_policy)
 
     global collection_name
     collection_name = collection_info.get('name')
@@ -1343,6 +1450,35 @@ def main():
     status = "Reports generated for {}".format(outputFilename)
     print(status)
     log.info(status)
+
+def validate_collection_input(args):
+    if (args.name is not None):
+       name = str(args.name)
+       collections =  Collections().get_by_name(name)
+       found = False
+       for collection in collections:
+           if (collection.get("name") == name):
+              found = True
+              collguid = collection.get("guid")
+              status = "Guid for collection: {} is {}".format(name,collguid)
+              print(status)
+              log.info(status)
+              break
+
+       if (not found):
+          status = "Collection: {} does not exist".format(name)
+          print(status)
+          log.info(status)
+          exit(1)
+
+    elif (args.collectionsid is not None):
+       collguid = args.collectionsid
+    else:
+       status = "Either a collection name or guid is required."
+       print(status)
+       log.info(status)
+       exit(1)
+    return collguid
 
 
 if __name__ == '__main__':
