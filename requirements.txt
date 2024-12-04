@@ -1,4 +1,5 @@
 requests>=2.24.0
-veracode-api-py>=0.9.47
-reportlab>=4.2.0
+veracode-api-py>=0.9.55
+reportlab>=4.2.5
+pillow>=10.2.0 #pin newer version to solve transitive risk, remove when reportlab upgrades to newer pillow version
 logging-formatter-anticrlf>=1.2
