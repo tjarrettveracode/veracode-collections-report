@@ -505,7 +505,7 @@ def compliance_summary_pie_chart(compliance_overview):
 
 
 def get_compliance_percent_string(current, total):
-    return "{}%".format(str((current / total) * 100))
+    return "{}%".format(str(round((current / total) * 100, 2)))
 
 
 def findings_summary_chart(findingsbysev):
