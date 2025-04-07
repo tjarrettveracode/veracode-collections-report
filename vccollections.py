@@ -1004,7 +1004,7 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
     column_widths = get_column_widths_for_scan_type("DYNAMIC")
     header_row = dynamic_findings_table_headers()
 
-    return KeepTogether((make_table_for_dast(get_dynamic_table_title(), [pw])) if is_first_dast_finding else [] + [
+    return KeepTogether(([(make_table_for_dast(get_dynamic_table_title(), [pw]))] if is_first_dast_finding else []) + [
         make_table_for_dast(header_row, column_widths),
         HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None),
         make_table_for_dast(wrap_row_data(first_row, False, True), column_widths), 
