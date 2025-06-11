@@ -927,7 +927,7 @@ def static_findings_data_row(f):
     ]
     return wrap_row_data(data_row, False)
 
-def get_cwe_information(cwe_id):
+def get_cwe_information(cwe_id):    
     uri = f"appsec/v1/cwes/{cwe_id}"
     return APIHelper()._rest_request(uri,"GET")
 
@@ -987,17 +987,25 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
         f['finding_details'].get('vulnerable_parameter', ''),
     ]
 
+    description_base = try_decode(f['description'])
+    description_split = description_base.split("<span>")
+
     cwe_information = get_cwe_information(f['finding_details']['cwe']['id'])
     third_row = [
         "<b>Effort to fix:</b>",
         get_remediation_effort(cwe_information["remediation_effort"]),
         "<b>Remediation Guidance:</b>",
-        cwe_information["recommendation"]
+        description_split[2].replace("</span>", "")
     ] if cwe_information else []
 
-    forth_row = [
+    fourth_row = [
         "<b>Description:</b>",
-        try_decode(f['description']).replace("<span>", "").replace("</span>", "")
+        description_split[1].replace("</span>", "")
+    ]
+
+    fifth_row = [
+        "<b>References:</b>",
+        f"{''.join(description_split[3:]).replace('</span>', '').replace('</a>', '</a></u>').replace('<a', '<u><a color="blue"')}"
     ]
 
     pw = printable_width
@@ -1013,7 +1021,9 @@ def dynamic_finding_data_rows(f, is_first_dast_finding):
         HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.dimgray, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=(2, 2)),
         make_table_for_dast(wrap_row_data(third_row, False, True), [0.09 * pw, 0.19 * pw, 0.25 * pw, 0.47 * pw]),
         HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.dimgray, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=(2, 2)),
-        make_table_for_dast(wrap_row_data(forth_row, False, True), [0.09 * pw, 0.91 * pw]),
+        make_table_for_dast(wrap_row_data(fourth_row, False, True), [0.09 * pw, 0.91 * pw]),
+        HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None),
+        make_table_for_dast(wrap_row_data(fifth_row, False, True), [0.09 * pw, 0.91 * pw]),
         HRFlowable(width=pw, thickness=1, lineCap='round', color=colors.black, spaceBefore=1, spaceAfter=1, hAlign='CENTER', vAlign='BOTTOM', dash=None)
     ])
 
