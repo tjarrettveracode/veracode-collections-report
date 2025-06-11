@@ -927,8 +927,7 @@ def static_findings_data_row(f):
     ]
     return wrap_row_data(data_row, False)
 
-def get_cwe_information(cwe_id):
-    
+def get_cwe_information(cwe_id):    
     uri = f"appsec/v1/cwes/{cwe_id}"
     return APIHelper()._rest_request(uri,"GET")
 
